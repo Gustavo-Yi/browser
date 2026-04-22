@@ -1,7 +1,7 @@
 {
   "name": "yutong-browser",
   "productName": "钰彤指纹浏览器",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Multi-instance anti-association browser for WhatsApp CRM",
   "main": "main.js",
   "scripts": {
@@ -36,10 +36,14 @@
       "icon": "icon.png"
     },
     "nsis": {
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false,
-      "deleteAppDataOnUninstall": false
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "钰彤指纹浏览器"
     }
+
   }
 
 }
