@@ -38,9 +38,12 @@ function renderAccounts(accounts) {
         return;
     }
 
-    accounts.forEach(acc => {
+    accounts.forEach((acc, index) => {
         const card = document.createElement('div');
         card.className = `account-card ${acc.isRunning ? 'running' : ''}`;
+        card.draggable = true; // 开启拖拽
+        card.dataset.id = acc.id;
+        card.dataset.index = index;
         
         const proxyTag = acc.proxy ? '<span class="badge blue">住宅代理</span>' : '<span class="badge grey">系统代理</span>';
         const uaTag = `<span class="badge grey">Chrome ${acc.ua ? acc.ua.split('Chrome/')[1].split(' ')[0] : 'Latest'}</span>`;
@@ -76,12 +79,45 @@ function renderAccounts(accounts) {
             </div>
         `;
         
+        // 拖拽事件监听
+        card.ondragstart = (e) => {
+            card.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', index);
+        };
+
+        card.ondragend = () => card.classList.remove('dragging');
+
+        card.ondragover = (e) => {
+            e.preventDefault();
+            const draggingCard = document.querySelector('.dragging');
+            if (draggingCard && draggingCard !== card) {
+                const rect = card.getBoundingClientRect();
+                const next = (e.clientY - rect.top) > (rect.height / 2);
+                accountGrid.insertBefore(draggingCard, next ? card.nextSibling : card);
+            }
+        };
+
+        card.ondrop = (e) => {
+            e.preventDefault();
+            saveNewOrder();
+        };
+
         card.onclick = (e) => {
             if (e.target.closest('.icon-btn')) return;
             if (!acc.isRunning) ipcRenderer.send('launch-profile', acc.id);
         };
         accountGrid.appendChild(card);
     });
+}
+
+// 保存新顺序
+function saveNewOrder() {
+    const cards = Array.from(accountGrid.querySelectorAll('.account-card'));
+    const newOrder = cards.map(card => {
+        return accountsData.find(acc => acc.id === card.dataset.id);
+    });
+    accountsData = newOrder;
+    ipcRenderer.send('save-accounts-order', newOrder);
 }
 
 // 2. 弹窗交互
@@ -267,9 +303,19 @@ async function initApp() {
     if (checkUpdateBtn) {
         checkUpdateBtn.onclick = () => {
             console.log("Debug: Check Update Button Clicked!");
-            checkUpdateBtn.innerText = "⏳ 正在检查...";
+            checkUpdateBtn.innerText = "正在检查...";
             checkUpdateBtn.disabled = true;
             ipcRenderer.send('manual-check-update');
+
+            // 增加 10 秒超时重置，防止本地开发模式卡死
+            setTimeout(() => {
+                if (checkUpdateBtn.disabled && checkUpdateBtn.innerText.includes("正在检查")) {
+                    console.warn("Update check timed out locally.");
+                    checkUpdateBtn.innerText = "检查更新";
+                    checkUpdateBtn.disabled = false;
+                    alert("本地检查超时（开发模式常见现象），请检查控制台或等待正式打包测试。");
+                }
+            }, 10000);
         };
     } else {
         console.error("Debug: Could not find check-update-btn in DOM!");
@@ -312,17 +358,21 @@ async function checkUpdates() {
     ipcRenderer.on('update-not-available', () => {
         const checkUpdateBtn = document.getElementById('check-update-btn');
         if (checkUpdateBtn) {
-            checkUpdateBtn.innerText = "🔄 检查更新";
+            checkUpdateBtn.innerText = "检查更新";
             checkUpdateBtn.disabled = false;
         }
-        alert('当前已是最新版本！');
+        // 使用自定义弹窗或更可靠的反馈
+        console.log("Update check result: Already latest version.");
+        setTimeout(() => {
+            alert('当前已是最新版本！(V 2.1.4)');
+        }, 1000);
     });
 
     // 监听：发生错误
     ipcRenderer.on('update-error', (event, error) => {
         const checkUpdateBtn = document.getElementById('check-update-btn');
         if (checkUpdateBtn) {
-            checkUpdateBtn.innerText = "🔄 检查更新";
+            checkUpdateBtn.innerText = "检查更新";
             checkUpdateBtn.disabled = false;
         }
         console.error('更新检查失败:', error);

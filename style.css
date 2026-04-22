@@ -87,31 +87,44 @@ body {
     background: var(--primary);
     color: white;
     border: none;
-    padding: 10px 20px;
-    border-radius: 10px;
+    padding: 8px 24px;
+    border-radius: 8px;
     font-weight: 600;
+    font-size: 0.9rem;
     cursor: pointer;
     transition: all 0.2s;
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    height: 38px;
 }
 
 .primary-btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
 .primary-btn:active { transform: translateY(0); }
 
 .secondary-btn {
-    background: #f1f5f9;
+    background: white;
     color: var(--text-main);
     border: 1px solid #e2e8f0;
-    padding: 8px 16px;
+    padding: 8px 20px;
     border-radius: 8px;
-    font-weight: 500;
+    font-weight: 600;
+    font-size: 0.9rem;
     cursor: pointer;
     transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 38px;
 }
 
-.secondary-btn:hover { background: #e2e8f0; }
+.secondary-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+.global-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px; /* 减小统计项和按钮之间的间距 */
+}
 
 .tertiary-btn {
     background: transparent;
@@ -159,6 +172,16 @@ body {
 
 .account-card.running {
     border-left: 5px solid var(--primary);
+}
+
+.account-card.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+    border: 2px dashed var(--primary);
+}
+
+.grid-container {
+    user-select: none;
 }
 
 .card-header {

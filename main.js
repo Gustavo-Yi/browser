@@ -252,6 +252,10 @@ function createWindow() {
         manager.accounts = manager.accounts.filter(a => a.id !== id); manager.saveAccounts();
         e.reply('accounts-list', manager.accounts.map(acc => ({ ...acc, isRunning: manager.activeProcesses.has(acc.id) })));
     });
+    ipcMain.on('save-accounts-order', (e, sortedAccounts) => {
+        manager.accounts = sortedAccounts;
+        manager.saveAccounts();
+    });
     ipcMain.handle('test-proxy', async (event, { host, port, user, pass }) => {
         // 使用 socks5h (远程 DNS) 进行检测，这对住宅代理更可靠
         let proxyUrl = `socks5h://${host}:${port}`; 
