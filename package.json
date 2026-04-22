@@ -1,7 +1,7 @@
 {
   "name": "yutong-browser",
   "productName": "钰彤指纹浏览器",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Multi-instance anti-association browser for WhatsApp CRM",
   "main": "main.js",
   "scripts": {

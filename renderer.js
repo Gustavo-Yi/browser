@@ -307,15 +307,14 @@ async function initApp() {
             checkUpdateBtn.disabled = true;
             ipcRenderer.send('manual-check-update');
 
-            // 增加 10 秒超时重置，防止本地开发模式卡死
+            // 增加 20 秒超时重置，防止网络极慢时卡死
             setTimeout(() => {
                 if (checkUpdateBtn.disabled && checkUpdateBtn.innerText.includes("正在检查")) {
-                    console.warn("Update check timed out locally.");
+                    console.warn("Update check timed out.");
                     checkUpdateBtn.innerText = "检查更新";
                     checkUpdateBtn.disabled = false;
-                    alert("本地检查超时（开发模式常见现象），请检查控制台或等待正式打包测试。");
                 }
-            }, 10000);
+            }, 20000);
         };
     } else {
         console.error("Debug: Could not find check-update-btn in DOM!");
@@ -361,11 +360,7 @@ async function checkUpdates() {
             checkUpdateBtn.innerText = "检查更新";
             checkUpdateBtn.disabled = false;
         }
-        // 使用自定义弹窗或更可靠的反馈
         console.log("Update check result: Already latest version.");
-        setTimeout(() => {
-            alert('当前已是最新版本！(V 2.1.4)');
-        }, 1000);
     });
 
     // 监听：发生错误
@@ -375,7 +370,6 @@ async function checkUpdates() {
             checkUpdateBtn.innerText = "检查更新";
             checkUpdateBtn.disabled = false;
         }
-        console.error('更新检查失败:', error);
     });
 }
 

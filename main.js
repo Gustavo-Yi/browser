@@ -315,10 +315,23 @@ function createWindow() {
 
     autoUpdater.on('update-not-available', (info) => {
         win.webContents.send('update-not-available', info);
+        dialog.showMessageBox(win, {
+            type: 'info',
+            title: '检查更新',
+            message: `当前已是最新版本！(V ${app.getVersion()})`,
+            buttons: ['确定']
+        });
     });
 
     autoUpdater.on('error', (err) => {
         win.webContents.send('update-error', err);
+        dialog.showMessageBox(win, {
+            type: 'error',
+            title: '更新检查失败',
+            message: '无法连接到更新服务器，请检查网络后再试。',
+            detail: err.toString(),
+            buttons: ['确定']
+        });
     });
 
     // 可以在窗口显示后检查更新
