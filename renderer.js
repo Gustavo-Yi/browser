@@ -285,9 +285,11 @@ async function checkUpdates() {
         document.getElementById('update-changelog').innerText = info.releaseNotes || "发现新版本，点击开始更新。";
         document.getElementById('update-modal').classList.add('active');
         document.getElementById('btn-do-update').onclick = () => {
-             // 启动下载 (取决于主进程配置，通常 checkForUpdatesAndNotify 会自动开始或由手动触发)
+             // 启动下载
+             ipcRenderer.send('start-download');
              document.getElementById('update-progress-container').style.display = 'block';
              document.getElementById('btn-do-update').disabled = true;
+             document.getElementById('btn-do-update').innerText = "正在下载...";
         };
     });
 

@@ -282,7 +282,8 @@ function createWindow() {
         const result = await dialog.showOpenDialog(win, { title: "选择 Chrome", properties: ['openFile'], filters: [{ name: 'Executables', extensions: ['exe'] }] });
         if (!result.canceled && result.filePaths.length > 0) { manager.config.chromePath = result.filePaths[0]; manager.saveConfig(); event.reply('chrome-path-set', manager.config.chromePath); }
     });
-    // 真正的自动更新逻辑 (使用 electron-updater)
+    autoUpdater.autoDownload = false; // 禁用自动下载，等待用户点击按钮
+
     autoUpdater.on('update-available', (info) => {
         win.webContents.send('update-available', info);
     });
@@ -293,6 +294,10 @@ function createWindow() {
 
     autoUpdater.on('update-downloaded', (info) => {
         win.webContents.send('update-ready', info);
+    });
+
+    ipcMain.on('start-download', () => {
+        autoUpdater.downloadUpdate();
     });
 
     ipcMain.on('restart-app', () => {
