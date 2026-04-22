@@ -260,6 +260,16 @@ async function initApp() {
     btnSelectChrome.onclick = () => ipcRenderer.send('select-chrome-path');
     ipcRenderer.on('chrome-path-set', () => chromeModal.classList.remove('active'));
 
+    // 检查更新按钮
+    const checkUpdateBtn = document.getElementById('check-update-btn');
+    if (checkUpdateBtn) {
+        checkUpdateBtn.onclick = () => {
+            checkUpdateBtn.innerText = "⏳ 正在检查...";
+            checkUpdateBtn.disabled = true;
+            ipcRenderer.send('manual-check-update');
+        };
+    }
+
     ipcRenderer.send('get-accounts');
 }
 
@@ -289,6 +299,26 @@ async function checkUpdates() {
         btn.onclick = () => {
             ipcRenderer.send('restart-app');
         };
+    });
+
+    // 监听：没有更新
+    ipcRenderer.on('update-not-available', () => {
+        const checkUpdateBtn = document.getElementById('check-update-btn');
+        if (checkUpdateBtn) {
+            checkUpdateBtn.innerText = "🔄 检查更新";
+            checkUpdateBtn.disabled = false;
+        }
+        alert('当前已是最新版本！');
+    });
+
+    // 监听：发生错误
+    ipcRenderer.on('update-error', (event, error) => {
+        const checkUpdateBtn = document.getElementById('check-update-btn');
+        if (checkUpdateBtn) {
+            checkUpdateBtn.innerText = "🔄 检查更新";
+            checkUpdateBtn.disabled = false;
+        }
+        console.error('更新检查失败:', error);
     });
 }
 initApp();

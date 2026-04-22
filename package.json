@@ -1,7 +1,7 @@
 {
   "name": "yutong-browser",
   "productName": "钰彤指纹浏览器",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Multi-instance anti-association browser for WhatsApp CRM",
   "main": "main.js",
   "scripts": {
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "axios": "^1.15.1",
+    "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
     "socks-proxy-agent": "^10.0.0"
   },
@@ -26,7 +27,6 @@
         "provider": "github",
         "owner": "Gustavo-Yi",
         "repo": "browser"
-
       }
     ],
     "win": {
@@ -43,7 +43,5 @@
       "createStartMenuShortcut": true,
       "shortcutName": "钰彤指纹浏览器"
     }
-
   }
-
 }

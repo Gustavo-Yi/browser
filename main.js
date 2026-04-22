@@ -1,5 +1,11 @@
 const { app, BrowserWindow, ipcMain, session, shell, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+// 配置日志
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = 'info';
+log.info('App starting...');
 
 const path = require('path');
 const fs = require('fs');
@@ -291,6 +297,19 @@ function createWindow() {
 
     ipcMain.on('restart-app', () => {
         autoUpdater.quitAndInstall();
+    });
+
+    // 手动检查更新
+    ipcMain.on('manual-check-update', () => {
+        autoUpdater.checkForUpdatesAndNotify();
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+        win.webContents.send('update-not-available', info);
+    });
+
+    autoUpdater.on('error', (err) => {
+        win.webContents.send('update-error', err);
     });
 
     // 可以在窗口显示后检查更新
