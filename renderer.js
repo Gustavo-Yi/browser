@@ -321,7 +321,11 @@ async function checkUpdates() {
         console.error('更新检查失败:', error);
     });
 }
-initApp();
-checkUpdates();
+
+// 确保 DOM 加载完成后再初始化
+document.addEventListener('DOMContentLoaded', () => {
+    initApp().catch(err => console.error("Init Error:", err));
+    checkUpdates();
+});
 
 
