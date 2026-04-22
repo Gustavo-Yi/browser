@@ -262,12 +262,17 @@ async function initApp() {
 
     // 检查更新按钮
     const checkUpdateBtn = document.getElementById('check-update-btn');
+    console.log("Debug: checkUpdateBtn element:", checkUpdateBtn);
+
     if (checkUpdateBtn) {
         checkUpdateBtn.onclick = () => {
+            console.log("Debug: Check Update Button Clicked!");
             checkUpdateBtn.innerText = "⏳ 正在检查...";
             checkUpdateBtn.disabled = true;
             ipcRenderer.send('manual-check-update');
         };
+    } else {
+        console.error("Debug: Could not find check-update-btn in DOM!");
     }
 
     ipcRenderer.send('get-accounts');
