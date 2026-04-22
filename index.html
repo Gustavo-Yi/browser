@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>钰彤指纹浏览器控制台</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-wrapper">
+        <!-- 顶部导航栏 -->
+        <header class="main-header">
+            <div class="brand">
+                <img src="whatsapp.png" alt="Logo" class="logo">
+                <div class="brand-info">
+                    <h1>指纹浏览器</h1>
+                    <p>专业级多开管理环境</p>
+                </div>
+            </div>
+
+            <div class="global-stats">
+                <div class="stat-item">
+                    <span class="label">当前配置:</span>
+                    <span class="value" id="total-accounts">0</span>
+                </div>
+                <button class="primary-btn" id="add-account-btn">
+                    <span class="icon">+</span> 新建环境
+                </button>
+            </div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main class="content-area">
+            <div class="grid-container" id="account-grid">
+                <!-- 动态生成的账号卡片 -->
+            </div>
+        </main>
+
+        <!-- 底部状态栏 -->
+        <footer class="main-footer">
+            <div class="status-info">
+                <span class="dot green"></span> 系统连通性良好
+            </div>
+            <div class="version">V 2.0.0 Purified</div>
+        </footer>
+    </div>
+
+    <!-- 弹窗：添加/编辑 -->
+    <div id="account-modal" class="modal-overlay">
+        <div class="modal card">
+            <h3 id="modal-title">新建浏览器指纹</h3>
+            
+            <div class="form-group">
+                <label>环境名称</label>
+                <input type="text" id="acc-name" placeholder="如: 欧洲账号-01">
+            </div>
+
+            <div class="proxy-section card-inner">
+                <div class="proxy-header">
+                    <label>SOCKS5 代理设置</label>
+                    <a href="#" id="toggle-proxy-mode" class="link-btn">切换填写模式</a>
+                </div>
+
+                <div id="proxy-detail-mode">
+                    <div class="row">
+                        <input type="text" id="proxy-host" placeholder="代理 IP / 域名">
+                        <input type="text" id="proxy-port" placeholder="端口">
+                    </div>
+                    <div class="row">
+                        <input type="text" id="proxy-user" placeholder="账号">
+                        <input type="password" id="proxy-pass" placeholder="密码">
+                    </div>
+                </div>
+
+                <div id="proxy-simple-mode" style="display: none;">
+                    <input type="text" id="proxy-url-simple" placeholder="socks5://user:pass@ip:port">
+                </div>
+                
+                <div class="proxy-footer">
+                    <button id="test-proxy-btn" class="secondary-btn">⚡ 代理连通性检测</button>
+                    <div id="test-status" class="test-status-msg">等待检测...</div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="modal-cancel" class="tertiary-btn">取消</button>
+                <button id="modal-save" class="primary-btn">开始创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 弹窗：Chrome 检测 -->
+    <div id="chrome-modal" class="modal-overlay">
+        <div class="modal card warning">
+            <h3>📭 未检测到 Chrome</h3>
+            <p>该软件需要谷歌浏览器内核才能运行。请安装或指定路径。</p>
+            <div class="btn-stack">
+                <button id="btn-download-chrome" class="primary-btn">立即去官网下载</button>
+                <button id="btn-select-chrome" class="secondary-btn">手动指定 Chrome.exe 路径</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 弹窗：自动更新 -->
+    <div id="update-modal" class="modal-overlay">
+        <div class="modal card">
+            <h3>🚀 发现新版本！</h3>
+            <p id="update-changelog" style="color: #64748b; font-size: 0.9rem; line-height: 1.6; background: #f8fafc; padding: 15px; border-radius: 12px; margin: 10px 0;">
+                正在获取更新日志...
+            </p>
+            <!-- 进度条 -->
+            <div id="update-progress-container" style="display: none; margin-top: 10px;">
+                <div style="height: 10px; background: #f1f5f9; border-radius: 5px; overflow: hidden;">
+                    <div id="update-progress-bar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s;"></div>
+                </div>
+                <p id="update-status" style="font-size:0.7rem; color: var(--text-sec); margin-top:5px; text-align:right;">正在下载: 0%</p>
+            </div>
+            <div class="modal-footer">
+                <button class="tertiary-btn" onclick="document.getElementById('update-modal').classList.remove('active')">稍后提醒</button>
+                <button id="btn-do-update" class="primary-btn">开始下载</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="renderer.js"></script>
+
+</body>
+</html>
