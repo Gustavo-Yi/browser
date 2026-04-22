@@ -24,7 +24,7 @@ let isEditMode = false;
 let currentEditId = null;
 let isDetailedMode = true; 
 let accountsData = [];
-const APP_VERSION = "2.0.0"; // 当前版本号
+// 动态从主进程获取版本号
 
 
 // 1. 列表渲染逻辑 (卡片布局)
@@ -244,16 +244,24 @@ function buildProxyString() {
     return `socks5://${auth}${host}:${port}`;
 }
 
-// 5. IPC
-ipcRenderer.on('accounts-list', (event, accounts) => renderAccounts(accounts));
-ipcRenderer.on('process-started', () => ipcRenderer.send('get-accounts'));
-ipcRenderer.on('process-ended', () => ipcRenderer.send('get-accounts'));
-ipcRenderer.on('chrome-not-found', () => chromeModal.classList.add('active'));
-btnDownloadChrome.onclick = () => ipcRenderer.send('open-chrome-download');
-btnSelectChrome.onclick = () => ipcRenderer.send('select-chrome-path');
-ipcRenderer.on('chrome-path-set', () => chromeModal.classList.remove('active'));
+// 5. IPC 和 初始化
+async function initApp() {
+    // 获取并显示真实版本号
+    const version = await ipcRenderer.invoke('get-version');
+    const label = document.getElementById('app-version-label');
+    if (label) label.innerText = `V ${version} Purified`;
 
-ipcRenderer.send('get-accounts');
+    ipcRenderer.on('accounts-list', (event, accounts) => renderAccounts(accounts));
+    ipcRenderer.on('process-started', () => ipcRenderer.send('get-accounts'));
+    ipcRenderer.on('process-ended', () => ipcRenderer.send('get-accounts'));
+    ipcRenderer.on('chrome-not-found', () => chromeModal.classList.add('active'));
+    
+    btnDownloadChrome.onclick = () => ipcRenderer.send('open-chrome-download');
+    btnSelectChrome.onclick = () => ipcRenderer.send('select-chrome-path');
+    ipcRenderer.on('chrome-path-set', () => chromeModal.classList.remove('active'));
+
+    ipcRenderer.send('get-accounts');
+}
 
 // 6. 真正的自动更新检查逻辑 (与主进程配合)
 async function checkUpdates() {
@@ -283,6 +291,7 @@ async function checkUpdates() {
         };
     });
 }
+initApp();
 checkUpdates();
 
 

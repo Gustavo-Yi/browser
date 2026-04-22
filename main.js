@@ -269,14 +269,8 @@ function createWindow() {
         }
     });
 
-    // 版本检查逻辑 (自动更新)
-    ipcMain.handle('check-update', async () => {
-        const UPDATE_URL = "https://gitee.com/your-repo/version.json"; // 建议使用 Gitee 或 GitHub
-        try {
-            const res = await axios.get(UPDATE_URL, { timeout: 5000 });
-            return res.data; // { version: "2.1.0", downloadUrl: "...", changelog: "..." }
-        } catch (e) { return null; }
-    });
+    // 获取当前版本号
+    ipcMain.handle('get-version', () => app.getVersion());
 
     ipcMain.on('select-chrome-path', async (event) => {
         const result = await dialog.showOpenDialog(win, { title: "选择 Chrome", properties: ['openFile'], filters: [{ name: 'Executables', extensions: ['exe'] }] });
