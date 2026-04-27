@@ -24,5 +24,5 @@ jobs:
 
       - name: Build and Publish
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }} # 你需要在 GitHub 项目设置里添加这个 Secret
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         run: npm run dist -- --publish always
