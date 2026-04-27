@@ -3,61 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>钰彤指纹浏览器控制台</title>
+    <title>钰彤指纹浏览器</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-wrapper">
-        <!-- 顶部导航栏 -->
-        <header class="main-header">
-            <div class="brand">
-                <img src="whatsapp.png" alt="Logo" class="logo">
-                <div class="brand-info">
-                    <h1>指纹浏览器</h1>
-                    <p>专业级多开管理环境</p>
-                </div>
+<body>
+    <div class="app-shell">
+        <header class="top-nav glass-panel">
+            <div class="brand-group">
+                <img src="whatsapp.png" alt="Logo" class="brand-logo">
+                <h1 class="brand-title">钰彤指纹浏览器</h1>
             </div>
-
-            <div class="global-stats">
-                <div class="stat-item">
-                    <span class="label">当前配置:</span>
-                    <span class="value" id="total-accounts">0</span>
-                </div>
-                <button class="secondary-btn" id="check-update-btn">检查更新</button>
-                <button class="primary-btn" id="add-account-btn">新建环境</button>
+            <div class="window-controls">
+                <!-- 窗口控制按钮通常由 Electron 处理，此处留出空间或做视觉占位 -->
             </div>
         </header>
 
-        <!-- 主内容区 -->
-        <main class="content-area">
-            <div class="grid-container" id="account-grid">
-                <!-- 动态生成的账号卡片 -->
-            </div>
+        <main class="main-stage">
+            <section class="command-bar glass-panel">
+                <div class="search-box glass-control">
+                    <span class="search-icon">⌕</span>
+                    <input id="profile-search" type="search" placeholder="搜索环境名称 / ID / 备注">
+                </div>
+
+                <div class="segmented glass-control" role="tablist">
+                    <button class="segment active" data-filter="all" type="button">全部</button>
+                    <button class="segment" data-filter="running" type="button">运行中</button>
+                    <button class="segment" data-filter="warning" type="button">异常 <span class="tiny-alert" id="warning-count-badge" hidden>0</span></button>
+                    <button class="segment" data-filter="idle" type="button">未启动</button>
+                </div>
+
+                <div class="stats-row">
+                    <div class="stat-pill glass-control"><span>当前配置</span><strong id="total-accounts">0</strong></div>
+                    <div class="stat-pill glass-control"><span>运行中</span><strong id="running-count">0</strong></div>
+                    <div class="stat-pill glass-control"><span>代理正常</span><strong id="healthy-proxy-count">0</strong></div>
+                </div>
+
+                <div class="action-group">
+                    <button class="secondary-btn glass-control" id="check-update-btn" type="button">检查更新</button>
+                    <button class="primary-btn" id="add-account-btn" type="button">＋ 新建环境</button>
+                </div>
+            </section>
+
+            <section class="content-area">
+                <div class="grid-container" id="account-grid"></div>
+            </section>
         </main>
 
-        <!-- 底部状态栏 -->
-        <footer class="main-footer">
+        <footer class="status-strip glass-panel">
             <div class="status-info">
-                <span class="dot green"></span> 系统连通性良好
+                <span class="dot green"></span>
+                <span>系统连通性良好</span>
             </div>
-            <div class="version" id="app-version-label">V ---</div>
+            <div class="release-state">
+                <span class="dot-icon">◉</span> 已连接 GitHub Release
+            </div>
+            <div class="version-info">
+                <span id="app-version-label">V ---</span>
+            </div>
         </footer>
     </div>
 
-    <!-- 弹窗：添加/编辑 -->
     <div id="account-modal" class="modal-overlay">
-        <div class="modal card">
-            <h3 id="modal-title">新建浏览器指纹</h3>
+        <div class="modal glass-modal">
+            <div class="modal-heading">
+                <h3 id="modal-title">新建指纹环境</h3>
+                <p>配置环境名称、代理与指纹启动参数。</p>
+            </div>
             
             <div class="form-group">
                 <label>环境名称</label>
-                <input type="text" id="acc-name" placeholder="如: 欧洲账号-01">
+                <input type="text" id="acc-name" placeholder="如: 香港账号-01">
             </div>
 
-            <div class="proxy-section card-inner">
+            <div class="proxy-section">
                 <div class="proxy-header">
                     <label>SOCKS5 代理设置</label>
-                    <a href="#" id="toggle-proxy-mode" class="link-btn">切换填写模式</a>
+                    <a href="#" id="toggle-proxy-mode" class="link-btn">切换到一键粘贴</a>
                 </div>
 
                 <div id="proxy-detail-mode">
@@ -76,53 +98,51 @@
                 </div>
                 
                 <div class="proxy-footer">
-                    <button id="test-proxy-btn" class="secondary-btn">⚡ 代理连通性检测</button>
+                    <button id="test-proxy-btn" class="secondary-btn" type="button">代理连通性检测</button>
                     <div id="test-status" class="test-status-msg">等待检测...</div>
                 </div>
             </div>
 
             <div class="modal-footer">
-                <button id="modal-cancel" class="tertiary-btn">取消</button>
-                <button id="modal-save" class="primary-btn">开始创建</button>
+                <button id="modal-cancel" class="tertiary-btn" type="button">取消</button>
+                <button id="modal-save" class="primary-btn" type="button">保存环境</button>
             </div>
         </div>
     </div>
 
-    <!-- 弹窗：Chrome 检测 -->
     <div id="chrome-modal" class="modal-overlay">
-        <div class="modal card warning">
-            <h3>📭 未检测到 Chrome</h3>
-            <p>该软件需要谷歌浏览器内核才能运行。请安装或指定路径。</p>
+        <div class="modal glass-modal warning">
+            <div class="modal-heading">
+                <h3>未检测到 Chrome</h3>
+                <p>该软件需要谷歌浏览器内核才能运行。请安装或指定路径。</p>
+            </div>
             <div class="btn-stack">
-                <button id="btn-download-chrome" class="primary-btn">立即去官网下载</button>
-                <button id="btn-select-chrome" class="secondary-btn">手动指定 Chrome.exe 路径</button>
+                <button id="btn-download-chrome" class="primary-btn" type="button">立即去官网下载</button>
+                <button id="btn-select-chrome" class="secondary-btn" type="button">手动指定 Chrome.exe 路径</button>
             </div>
         </div>
     </div>
 
-    <!-- 弹窗：自动更新 -->
     <div id="update-modal" class="modal-overlay">
-        <div class="modal card">
-            <h3>🚀 发现新版本！</h3>
-            <p id="update-changelog" style="color: #64748b; font-size: 0.9rem; line-height: 1.6; background: #f8fafc; padding: 15px; border-radius: 12px; margin: 10px 0;">
-                正在获取更新日志...
-            </p>
-            <!-- 进度条 -->
-            <div id="update-progress-container" style="display: none; margin-top: 10px;">
-                <div style="height: 10px; background: #f1f5f9; border-radius: 5px; overflow: hidden;">
-                    <div id="update-progress-bar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s;"></div>
+        <div class="modal glass-modal">
+            <div class="modal-heading">
+                <h3>发现新版本</h3>
+                <p>更新包将从 GitHub Release 下载并在本机安装。</p>
+            </div>
+            <p id="update-changelog" class="update-changelog">正在获取更新日志...</p>
+            <div id="update-progress-container" class="progress-wrap" style="display: none;">
+                <div class="progress-track">
+                    <div id="update-progress-bar" class="progress-bar"></div>
                 </div>
-                <p id="update-status" style="font-size:0.7rem; color: var(--text-sec); margin-top:5px; text-align:right;">正在下载: 0%</p>
+                <p id="update-status">正在下载: 0%</p>
             </div>
             <div class="modal-footer">
-                <button class="tertiary-btn" onclick="document.getElementById('update-modal').classList.remove('active')">稍后提醒</button>
-                <button id="btn-do-update" class="primary-btn">开始下载</button>
+                <button class="tertiary-btn" onclick="document.getElementById('update-modal').classList.remove('active')" type="button">稍后提醒</button>
+                <button id="btn-do-update" class="primary-btn" type="button">开始下载</button>
             </div>
         </div>
     </div>
 
-
     <script src="renderer.js"></script>
-
 </body>
 </html>

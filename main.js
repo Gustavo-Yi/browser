@@ -7,6 +7,51 @@ autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
 
+const RECOVERABLE_NETWORK_CODES = new Set([
+    'ECONNRESET',
+    'ECONNABORTED',
+    'ETIMEDOUT',
+    'ECONNREFUSED',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ENETUNREACH',
+    'EPIPE',
+]);
+
+function normalizeError(error) {
+    if (error instanceof Error) return error;
+    return new Error(typeof error === 'string' ? error : JSON.stringify(error));
+}
+
+function isRecoverableNetworkError(error) {
+    const err = normalizeError(error);
+    return RECOVERABLE_NETWORK_CODES.has(err.code) || /ECONNRESET|socket hang up|network|timeout/i.test(err.message);
+}
+
+function logRecoverableNetworkError(source, error) {
+    const err = normalizeError(error);
+    log.warn(`${source}: ${err.code || 'NETWORK'} ${err.message}`);
+}
+
+process.on('uncaughtException', (error) => {
+    if (isRecoverableNetworkError(error)) {
+        logRecoverableNetworkError('Recovered uncaught network error', error);
+        return;
+    }
+
+    log.error('Uncaught exception', error);
+    dialog.showErrorBox('程序错误', normalizeError(error).stack || normalizeError(error).message);
+});
+
+process.on('unhandledRejection', (reason) => {
+    if (isRecoverableNetworkError(reason)) {
+        logRecoverableNetworkError('Recovered unhandled network rejection', reason);
+        return;
+    }
+
+    log.error('Unhandled rejection', reason);
+});
+
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
@@ -43,6 +88,10 @@ class SocksBridge {
     async start() {
         return new Promise((resolve, reject) => {
             this.server = net.createServer((clientSocket) => {
+                const destroySocket = (socket) => {
+                    if (socket && !socket.destroyed) socket.destroy();
+                };
+
                 clientSocket.once('data', (data) => {
                     if (data[0] !== 0x05) return clientSocket.destroy();
                     clientSocket.write(Buffer.from([0x05, 0x00]));
@@ -58,12 +107,33 @@ class SocksBridge {
                                 proxy: { host: this.upstream.host, port: parseInt(this.upstream.port), type: 5, userId: this.upstream.user, password: this.upstream.pass },
                                 command: 'connect', destination: { host, port }
                             });
+                            const upstreamSocket = info.socket;
+                            const closePair = () => {
+                                destroySocket(clientSocket);
+                                destroySocket(upstreamSocket);
+                            };
+                            upstreamSocket.on('error', (err) => {
+                                logRecoverableNetworkError('Proxy upstream socket error', err);
+                                closePair();
+                            });
+                            upstreamSocket.on('close', () => destroySocket(clientSocket));
+                            clientSocket.on('close', () => destroySocket(upstreamSocket));
+                            clientSocket.on('error', (err) => {
+                                logRecoverableNetworkError('Proxy client socket error', err);
+                                closePair();
+                            });
                             clientSocket.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
-                            clientSocket.pipe(info.socket).pipe(clientSocket);
-                        } catch (err) { clientSocket.destroy(); }
+                            clientSocket.pipe(upstreamSocket).pipe(clientSocket);
+                        } catch (err) {
+                            logRecoverableNetworkError('Proxy tunnel failed', err);
+                            clientSocket.destroy();
+                        }
                     });
                 });
-                clientSocket.on('error', () => clientSocket.destroy());
+                clientSocket.on('error', (err) => {
+                    logRecoverableNetworkError('Proxy handshake socket error', err);
+                    clientSocket.destroy();
+                });
             });
             this.server.listen(0, '127.0.0.1', () => { this.port = this.server.address().port; resolve(this.port); });
             this.server.on('error', reject);
@@ -300,8 +370,29 @@ function createWindow() {
         win.webContents.send('update-ready', info);
     });
 
+    const handleUpdateError = (err) => {
+        logRecoverableNetworkError('Update check failed', err);
+        win.webContents.send('update-error', normalizeError(err));
+        dialog.showMessageBox(win, {
+            type: 'error',
+            title: '更新检查失败',
+            message: '无法连接到更新服务器，请检查网络后再试。',
+            detail: normalizeError(err).toString(),
+            buttons: ['确定']
+        });
+    };
+
+    const checkForUpdates = () => {
+        if (!app.isPackaged) {
+            log.info('Skip update check in development mode.');
+            win.webContents.send('update-not-available', { version: app.getVersion(), dev: true });
+            return Promise.resolve(null);
+        }
+        return autoUpdater.checkForUpdatesAndNotify().catch(handleUpdateError);
+    };
+
     ipcMain.on('start-download', () => {
-        autoUpdater.downloadUpdate();
+        autoUpdater.downloadUpdate().catch(handleUpdateError);
     });
 
     ipcMain.on('restart-app', () => {
@@ -310,7 +401,7 @@ function createWindow() {
 
     // 手动检查更新
     ipcMain.on('manual-check-update', () => {
-        autoUpdater.checkForUpdatesAndNotify();
+        checkForUpdates();
     });
 
     autoUpdater.on('update-not-available', (info) => {
@@ -324,19 +415,12 @@ function createWindow() {
     });
 
     autoUpdater.on('error', (err) => {
-        win.webContents.send('update-error', err);
-        dialog.showMessageBox(win, {
-            type: 'error',
-            title: '更新检查失败',
-            message: '无法连接到更新服务器，请检查网络后再试。',
-            detail: err.toString(),
-            buttons: ['确定']
-        });
+        handleUpdateError(err);
     });
 
     // 可以在窗口显示后检查更新
     win.once('ready-to-show', () => {
-        autoUpdater.checkForUpdatesAndNotify();
+        checkForUpdates();
     });
 }
 app.whenReady().then(createWindow);
