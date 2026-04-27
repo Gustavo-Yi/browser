@@ -358,6 +358,13 @@ async function initApp() {
         }
     });
 
+    const checkUpdateBtn = document.getElementById('check-update-btn');
+    checkUpdateBtn.onclick = () => {
+        checkUpdateBtn.innerText = '正在检查...';
+        ipcRenderer.send('manual-check-update');
+        setTimeout(() => { checkUpdateBtn.innerText = '检查更新'; }, 3000);
+    };
+
     ipcRenderer.send('get-accounts');
 }
 
