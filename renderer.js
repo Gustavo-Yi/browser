@@ -52,7 +52,7 @@ function getChromeVersion(ua) {
 function getDisplayName(acc, index) {
     const trimmed = (acc.name || '').trim();
     if (!trimmed) return String(index + 1);
-    return trimmed.length <= 8 ? trimmed : trimmed.replace(/^账号0?/, '').replace(/-.*/, '') || String(index + 1);
+    return trimmed; // 直接返回原名，不再乱切
 }
 
 function getProxyMeta(acc, index) {
@@ -234,8 +234,23 @@ function resetForm() {
 function parseProxyString(str) {
     const result = { host: '', port: '', user: '', pass: '' };
     if (!str) return result;
-    str = str.trim().replace(/^(socks5?|http|socks5h|socks):\/\//i, '');
-    const parts = str.split(':');
+
+    try {
+        // 处理标准格式 socks5://user:pass@ip:port
+        if (str.includes('@') || str.includes('://')) {
+            const urlStr = str.includes('://') ? str : `socks5://${str}`;
+            const url = new URL(urlStr);
+            result.host = url.hostname;
+            result.port = url.port;
+            result.user = url.username;
+            result.pass = url.password;
+            if (result.host && result.port) return result;
+        }
+    } catch (e) {}
+
+    // 处理特殊格式 IP:端口:账号:密码 (荔枝IP常用)
+    const raw = str.replace(/^(socks5?|http|socks5h|socks):\/\//i, '');
+    const parts = raw.split(':');
     if (parts.length === 4) {
         result.host = parts[0]; result.port = parts[1]; result.user = parts[2]; result.pass = parts[3];
     } else if (parts.length === 2) {
@@ -331,6 +346,16 @@ async function initApp() {
             activeFilter = button.dataset.filter || 'all';
             renderAccounts(accountsData);
         });
+    });
+
+    proxyUrlSimple.addEventListener('input', () => {
+        const p = parseProxyString(proxyUrlSimple.value);
+        if (p.host && p.port) {
+            document.getElementById('proxy-host').value = p.host;
+            document.getElementById('proxy-port').value = p.port;
+            document.getElementById('proxy-user').value = p.user;
+            document.getElementById('proxy-pass').value = p.pass;
+        }
     });
 
     ipcRenderer.send('get-accounts');
