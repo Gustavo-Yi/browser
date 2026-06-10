@@ -3,143 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>钰彤指纹浏览器</title>
+    <title>YT多开浏览器</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<body>
-    <div class="app-shell">
-        <header class="top-nav glass-panel">
-            <div class="brand-group">
-                <img src="whatsapp.png" alt="Logo" class="brand-logo">
-                <h1 class="brand-title">钰彤指纹浏览器</h1>
+    <div class="app-layout">
+        <aside class="side-rail">
+            <div class="brand-block">
+                <img src="yutonglogo.png" alt="YT Logo" class="brand-logo">
+                <div>
+                    <h1>YT多开浏览器</h1>
+                    <span>多开工作台</span>
+                </div>
             </div>
-            <div class="window-controls">
-                <!-- 窗口控制按钮通常由 Electron 处理，此处留出空间或做视觉占位 -->
-            </div>
-        </header>
 
-        <main class="main-stage">
-            <section class="command-bar glass-panel">
-                <div class="search-box glass-control">
-                    <span class="search-icon">⌕</span>
-                    <input id="profile-search" type="search" placeholder="搜索环境名称 / ID / 备注">
+            <nav class="nav-list" aria-label="主导航">
+                <button class="nav-item active" type="button" data-view="accounts">
+                    <span class="nav-icon" data-icon="grid"></span>
+                    <span>环境</span>
+                </button>
+                <button class="nav-item" type="button" id="open-root-folder-btn">
+                    <span class="nav-icon" data-icon="folder"></span>
+                    <span>数据目录</span>
+                </button>
+                <button class="nav-item" type="button" id="nav-update-btn">
+                    <span class="nav-icon" data-icon="refresh"></span>
+                    <span>更新</span>
+                </button>
+            </nav>
+
+            <section class="rail-metrics" aria-label="环境统计">
+                <div class="rail-metric">
+                    <span>环境总数</span>
+                    <strong id="total-accounts">0</strong>
                 </div>
-
-                <div class="segmented glass-control" role="tablist">
-                    <button class="segment active" data-filter="all" type="button">全部</button>
-                    <button class="segment" data-filter="running" type="button">运行中</button>
-                    <button class="segment" data-filter="warning" type="button">异常 <span class="tiny-alert" id="warning-count-badge" hidden>0</span></button>
-                    <button class="segment" data-filter="idle" type="button">未启动</button>
+                <div class="rail-metric">
+                    <span>正在运行</span>
+                    <strong id="running-count">0</strong>
                 </div>
-
-                <div class="stats-row">
-                    <div class="stat-pill glass-control"><span>当前配置</span><strong id="total-accounts">0</strong></div>
-                    <div class="stat-pill glass-control"><span>运行中</span><strong id="running-count">0</strong></div>
-                    <div class="stat-pill glass-control"><span>代理正常</span><strong id="healthy-proxy-count">0</strong></div>
-                </div>
-
-                <div class="action-group">
-                    <button class="secondary-btn glass-control" id="check-update-btn" type="button">检查更新</button>
-                    <button class="primary-btn" id="add-account-btn" type="button">＋ 新建环境</button>
+                <div class="rail-metric">
+                    <span>今日启动</span>
+                    <strong id="today-count">0</strong>
                 </div>
             </section>
 
-            <section class="content-area">
-                <div class="grid-container" id="account-grid"></div>
+            <div class="rail-footer">
+                <span>Chrome 状态：<strong id="chrome-state-label">已连接</strong></span>
+                <span id="app-version-label">V ---</span>
+            </div>
+        </aside>
+
+        <main class="workspace">
+            <header class="workspace-header">
+                <div class="workspace-title">
+                    <h2>多开环境</h2>
+                    <p id="workspace-subtitle">0 个独立浏览器环境</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn" id="bulk-account-btn" type="button">
+                        <span data-icon="plus"></span>
+                        批量新建
+                    </button>
+                    <button class="btn primary" id="add-account-btn" type="button">
+                        <span data-icon="plus"></span>
+                        新建环境
+                    </button>
+                </div>
+            </header>
+
+            <section class="toolbar">
+                <label class="search-field">
+                    <span data-icon="search"></span>
+                    <input id="profile-search" type="search" placeholder="搜索环境名称或 ID">
+                </label>
+                <div class="segmented" role="tablist" aria-label="环境筛选">
+                    <button class="segment active" data-filter="all" type="button">全部</button>
+                    <button class="segment" data-filter="running" type="button">运行中</button>
+                    <button class="segment" data-filter="idle" type="button">未启动</button>
+                </div>
+            </section>
+
+            <section class="account-panel">
+                <div class="account-table">
+                    <div class="table-head" aria-hidden="true">
+                        <span>环境</span>
+                        <span>状态</span>
+                        <span>最后启动</span>
+                        <span>数据</span>
+                        <span>操作</span>
+                    </div>
+                    <div id="account-list" class="table-body"></div>
+                    <div id="empty-state" class="empty-state" hidden>
+                        <span class="empty-mark" data-icon="grid"></span>
+                        <h3>先创建第一个环境</h3>
+                        <p>每个环境都会保存独立的登录状态和浏览器数据。</p>
+                        <button class="btn primary" id="empty-create-btn" type="button">新建环境</button>
+                    </div>
+                </div>
             </section>
         </main>
 
-        <footer class="status-strip glass-panel">
-            <div class="status-info">
-                <span class="dot green"></span>
-                <span>系统连通性良好</span>
+        <aside class="drawer" id="side-drawer" aria-hidden="true">
+            <div class="drawer-header">
+                <div>
+                    <h2 id="drawer-title">新建环境</h2>
+                    <p id="drawer-subtitle">创建一个独立浏览器环境。</p>
+                </div>
+                <button class="icon-btn" id="drawer-close" type="button" aria-label="关闭">
+                    <span data-icon="x"></span>
+                </button>
             </div>
-            <div class="release-state">
-                <span class="dot-icon">◉</span> 已连接 GitHub Release
+
+            <form class="drawer-body" id="account-form">
+                <div class="field">
+                    <label for="acc-name">环境名称</label>
+                    <input id="acc-name" type="text" placeholder="如: 客户开发-香港-01" autocomplete="off">
+                </div>
+                <div class="drawer-footer">
+                    <button class="btn" id="drawer-cancel" type="button">取消</button>
+                    <button class="btn primary" id="modal-save" type="submit">保存</button>
+                </div>
+            </form>
+
+            <form class="drawer-body" id="bulk-form" hidden>
+                <div class="field">
+                    <label for="bulk-prefix">名称前缀</label>
+                    <input id="bulk-prefix" type="text" placeholder="如: 客户开发" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label for="bulk-count">数量</label>
+                    <input id="bulk-count" type="number" min="1" max="200" value="10">
+                </div>
+                <div class="preview-list" id="bulk-preview"></div>
+                <div class="drawer-footer">
+                    <button class="btn" id="bulk-cancel" type="button">取消</button>
+                    <button class="btn primary" id="bulk-save" type="submit">创建</button>
+                </div>
+            </form>
+
+            <div class="drawer-body" id="data-panel" hidden>
+                <div class="profile-card">
+                    <span>当前环境</span>
+                    <strong id="data-profile-name">-</strong>
+                    <small id="data-profile-id">ID -</small>
+                </div>
+                <div class="data-lines">
+                    <div><span>运行状态</span><strong id="data-profile-status">-</strong></div>
+                    <div><span>最后启动</span><strong id="data-profile-last">-</strong></div>
+                    <div><span>数据</span><strong>已保存</strong></div>
+                </div>
+                <button class="btn primary full-width" id="data-open-folder" type="button">
+                    <span data-icon="folder"></span>
+                    打开数据目录
+                </button>
+                <p class="drawer-note">每个环境都有独立的数据目录。迁移电脑时，备份对应目录即可保留该账号的浏览器数据。</p>
             </div>
-            <div class="version-info">
-                <span id="app-version-label">V ---</span>
-            </div>
-        </footer>
+        </aside>
     </div>
 
-    <div id="account-modal" class="modal-overlay">
-        <div class="modal glass-modal">
-            <div class="modal-heading">
-                <h3 id="modal-title">新建指纹环境</h3>
-                <p>配置环境名称、代理与指纹启动参数。</p>
-            </div>
-            
-            <div class="form-group">
-                <label>环境名称</label>
-                <input type="text" id="acc-name" placeholder="如: 香港账号-01">
-            </div>
+    <div class="toast-host" id="toast-host"></div>
 
-            <div class="proxy-section">
-                <div class="proxy-header">
-                    <label>SOCKS5 代理设置</label>
-                    <a href="#" id="toggle-proxy-mode" class="link-btn">切换到一键粘贴</a>
-                </div>
-
-                <div id="proxy-detail-mode">
-                    <div class="row">
-                        <input type="text" id="proxy-host" placeholder="代理 IP / 域名">
-                        <input type="text" id="proxy-port" placeholder="端口">
-                    </div>
-                    <div class="row">
-                        <input type="text" id="proxy-user" placeholder="账号">
-                        <input type="password" id="proxy-pass" placeholder="密码">
-                    </div>
-                </div>
-
-                <div id="proxy-simple-mode" style="display: none;">
-                    <input type="text" id="proxy-url-simple" placeholder="socks5://user:pass@ip:port">
-                </div>
-                
-                <div class="proxy-footer">
-                    <button id="test-proxy-btn" class="secondary-btn" type="button">代理连通性检测</button>
-                    <div id="test-status" class="test-status-msg">等待检测...</div>
-                </div>
+    <div id="app-modal" class="modal-overlay" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true">
+            <div class="modal-icon" id="modal-icon-wrap">
+                <span id="modal-icon" data-icon="info"></span>
             </div>
+            <h3 id="modal-title">提示</h3>
+            <p id="modal-message">-</p>
 
-            <div class="modal-footer">
-                <button id="modal-cancel" class="tertiary-btn" type="button">取消</button>
-                <button id="modal-save" class="primary-btn" type="button">保存环境</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="chrome-modal" class="modal-overlay">
-        <div class="modal glass-modal warning">
-            <div class="modal-heading">
-                <h3>未检测到 Chrome</h3>
-                <p>该软件需要谷歌浏览器内核才能运行。请安装或指定路径。</p>
-            </div>
-            <div class="btn-stack">
-                <button id="btn-download-chrome" class="primary-btn" type="button">立即去官网下载</button>
-                <button id="btn-select-chrome" class="secondary-btn" type="button">手动指定 Chrome.exe 路径</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="update-modal" class="modal-overlay">
-        <div class="modal glass-modal">
-            <div class="modal-heading">
-                <h3>发现新版本</h3>
-                <p>更新包将从 GitHub Release 下载并在本机安装。</p>
-            </div>
-            <p id="update-changelog" class="update-changelog">正在获取更新日志...</p>
-            <div id="update-progress-container" class="progress-wrap" style="display: none;">
+            <div id="update-progress-container" class="progress-wrap" hidden>
                 <div class="progress-track">
                     <div id="update-progress-bar" class="progress-bar"></div>
                 </div>
                 <p id="update-status">正在下载: 0%</p>
             </div>
-            <div class="modal-footer">
-                <button class="tertiary-btn" onclick="document.getElementById('update-modal').classList.remove('active')" type="button">稍后提醒</button>
-                <button id="btn-do-update" class="primary-btn" type="button">开始下载</button>
-            </div>
+            <p id="update-changelog" class="update-changelog" hidden></p>
+
+            <div class="modal-actions" id="modal-actions"></div>
         </div>
     </div>
 

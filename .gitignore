@@ -1,6 +1,6 @@
 ﻿node_modules/
 dist/
 profiles/
-temp_extensions/
+design-mockups/
 *.log
 .DS_Store

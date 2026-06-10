@@ -1,8 +1,8 @@
 {
   "name": "yutong-browser",
-  "productName": "钰彤指纹浏览器",
-  "version": "2.2.3",
-  "description": "Multi-instance anti-association browser for WhatsApp CRM",
+  "productName": "YT多开浏览器",
+  "version": "2.2.4",
+  "description": "Multi-instance browser with isolated profiles",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,10 +10,8 @@
     "dist": "electron-builder -w"
   },
   "dependencies": {
-    "axios": "^1.15.1",
     "electron-log": "^5.4.3",
-    "electron-updater": "^6.8.3",
-    "socks-proxy-agent": "^10.0.0"
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -21,7 +19,7 @@
   },
   "build": {
     "appId": "com.yutong.browser",
-    "productName": "钰彤指纹浏览器",
+    "productName": "YT多开浏览器",
     "publish": [
       {
         "provider": "github",
@@ -33,7 +31,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "icon.png"
+      "icon": "yutonglogo.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -41,7 +39,7 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "钰彤指纹浏览器"
+      "shortcutName": "YT多开浏览器"
     }
   }
 }

@@ -1,16 +1,10 @@
 [
   {
     "id": "1",
-    "name": "账号01-机场环境",
-    "proxy": "",
-    "timezone": "Asia/Shanghai",
-    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    "name": "账号01"
   },
   {
     "id": "2",
-    "name": "账号02-静态住宅IP",
-    "proxy": "",
-    "timezone": "America/New_York",
-    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    "name": "账号02"
   }
 ]
