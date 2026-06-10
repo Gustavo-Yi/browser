@@ -54,7 +54,7 @@ process.on('unhandledRejection', (reason) => {
 
 const path = require('path');
 const fs = require('fs');
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFileSync } = require('child_process');
 
 /**
  * 核心路径配置修正 (打包兼容性关键)
@@ -196,6 +196,10 @@ class AccountManager {
         return this.accounts.map(acc => ({ ...acc, isRunning: this.activeProcesses.has(acc.id) }));
     }
 
+    getRunningCount() {
+        return this.activeProcesses.size;
+    }
+
     findChromePath() {
         if (this.config.chromePath && fs.existsSync(this.config.chromePath)) return this.config.chromePath;
         const regPaths = ['HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe','HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe'];
@@ -248,6 +252,35 @@ class AccountManager {
         }
     }
 
+    closeAllProfiles() {
+        const pids = [...new Set(this.activeProcesses.values())]
+            .map(pid => Number.parseInt(pid, 10))
+            .filter(pid => Number.isInteger(pid) && pid > 0);
+
+        for (const pid of pids) {
+            try {
+                if (process.platform === 'win32') {
+                    execFileSync('taskkill', ['/PID', String(pid), '/T'], { stdio: 'ignore' });
+                } else {
+                    process.kill(-pid, 'SIGTERM');
+                }
+            } catch (error) {
+                try {
+                    if (process.platform === 'win32') {
+                        execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+                    } else {
+                        process.kill(pid, 'SIGKILL');
+                    }
+                } catch (killError) {
+                    log.warn(`Unable to close launched browser process ${pid}`, killError);
+                }
+            }
+        }
+
+        this.activeProcesses.clear();
+        this.mainWindow.webContents.send('accounts-list', this.getAccountsView());
+    }
+
     async openProfileFolder(accountId) {
         const account = this.accounts.find(a => a.id === String(accountId));
         if (!account) return;
@@ -279,7 +312,41 @@ function createWindow() {
         webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: false, nodeIntegration: true }
     });
     const manager = new AccountManager(win);
+    let allowWindowClose = false;
+    let isClosePromptOpen = false;
+
     win.loadFile('index.html');
+
+    app.once('before-quit', () => {
+        allowWindowClose = true;
+    });
+
+    win.on('close', async (event) => {
+        if (allowWindowClose || manager.getRunningCount() === 0) return;
+
+        event.preventDefault();
+        if (isClosePromptOpen) return;
+        isClosePromptOpen = true;
+
+        const runningCount = manager.getRunningCount();
+        const { response } = await dialog.showMessageBox(win, {
+            type: 'question',
+            title: '关闭客户端',
+            message: `当前有 ${runningCount} 个浏览器环境正在运行`,
+            detail: '你可以只关闭管理客户端，也可以同时关闭这些已启动的浏览器窗口。',
+            buttons: ['只关闭客户端', '同时关闭浏览器', '取消'],
+            defaultId: 0,
+            cancelId: 2,
+            noLink: true
+        });
+
+        isClosePromptOpen = false;
+        if (response === 2) return;
+        if (response === 1) manager.closeAllProfiles();
+
+        allowWindowClose = true;
+        win.close();
+    });
 
     ipcMain.on('get-accounts', (e) => e.reply('accounts-list', manager.getAccountsView()));
     ipcMain.on('launch-profile', (e, id) => manager.launchProfile(id));
@@ -358,6 +425,7 @@ function createWindow() {
     });
 
     ipcMain.on('restart-app', () => {
+        allowWindowClose = true;
         autoUpdater.quitAndInstall();
     });
 
