@@ -1,7 +1,7 @@
 {
   "name": "yutong-browser",
   "productName": "YT多开浏览器",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "description": "Multi-instance browser with isolated profiles",
   "main": "main.js",
   "scripts": {

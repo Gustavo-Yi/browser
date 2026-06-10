@@ -63,6 +63,7 @@ const { spawn, execSync, execFileSync } = require('child_process');
 const USER_DATA = app.getPath('userData');
 const PROFILES_ROOT = path.join(USER_DATA, 'profiles');
 const CONFIG_PATH = path.join(USER_DATA, 'config.json');
+const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const LEGACY_USER_DATA_PATHS = [
     path.join(app.getPath('appData'), '钰彤指纹浏览器')
 ];
@@ -314,6 +315,10 @@ function createWindow() {
     const manager = new AccountManager(win);
     let allowWindowClose = false;
     let isClosePromptOpen = false;
+    let isCheckingForUpdate = false;
+    let isDownloadingUpdate = false;
+    let isUpdateReady = false;
+    let manualUpdateRequest = false;
 
     win.loadFile('index.html');
 
@@ -392,10 +397,14 @@ function createWindow() {
         const result = await dialog.showOpenDialog(win, { title: "选择 Chrome", properties: ['openFile'], filters: [{ name: 'Executables', extensions: ['exe'] }] });
         if (!result.canceled && result.filePaths.length > 0) { manager.config.chromePath = result.filePaths[0]; manager.saveConfig(); event.reply('chrome-path-set', manager.config.chromePath); }
     });
-    autoUpdater.autoDownload = false; // 禁用自动下载，等待用户点击按钮
+    autoUpdater.autoDownload = false;
 
     autoUpdater.on('update-available', (info) => {
+        if (isUpdateReady || isDownloadingUpdate) return;
+        isCheckingForUpdate = false;
+        isDownloadingUpdate = true;
         win.webContents.send('update-available', info);
+        autoUpdater.downloadUpdate().catch(handleUpdateError);
     });
 
     autoUpdater.on('download-progress', (progress) => {
@@ -403,39 +412,54 @@ function createWindow() {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
+        isDownloadingUpdate = false;
+        isUpdateReady = true;
         win.webContents.send('update-ready', info);
     });
 
     const handleUpdateError = (err) => {
+        isCheckingForUpdate = false;
+        isDownloadingUpdate = false;
         logRecoverableNetworkError('Update check failed', err);
-        win.webContents.send('update-error', normalizeError(err));
+        win.webContents.send('update-error', { message: normalizeError(err).message, manual: manualUpdateRequest });
+        manualUpdateRequest = false;
     };
 
-    const checkForUpdates = () => {
+    const checkForUpdates = (manual = false) => {
+        if (isCheckingForUpdate || isDownloadingUpdate || isUpdateReady) return Promise.resolve(null);
+        manualUpdateRequest = manual;
         if (!app.isPackaged) {
             log.info('Skip update check in development mode.');
-            win.webContents.send('update-not-available', { version: app.getVersion(), dev: true });
+            win.webContents.send('update-not-available', { version: app.getVersion(), dev: true, manual });
+            manualUpdateRequest = false;
             return Promise.resolve(null);
         }
-        return autoUpdater.checkForUpdatesAndNotify().catch(handleUpdateError);
+        isCheckingForUpdate = true;
+        win.webContents.send('update-checking', { manual });
+        return autoUpdater.checkForUpdates().catch(handleUpdateError);
     };
 
     ipcMain.on('start-download', () => {
+        if (isDownloadingUpdate || isUpdateReady) return;
+        isDownloadingUpdate = true;
         autoUpdater.downloadUpdate().catch(handleUpdateError);
     });
 
     ipcMain.on('restart-app', () => {
+        manager.closeAllProfiles();
         allowWindowClose = true;
-        autoUpdater.quitAndInstall();
+        autoUpdater.quitAndInstall(true, true);
     });
 
     // 手动检查更新
     ipcMain.on('manual-check-update', () => {
-        checkForUpdates();
+        checkForUpdates(true);
     });
 
     autoUpdater.on('update-not-available', (info) => {
-        win.webContents.send('update-not-available', info);
+        isCheckingForUpdate = false;
+        win.webContents.send('update-not-available', { ...info, manual: manualUpdateRequest });
+        manualUpdateRequest = false;
     });
 
     autoUpdater.on('error', (err) => {
@@ -444,7 +468,8 @@ function createWindow() {
 
     // 可以在窗口显示后检查更新
     win.once('ready-to-show', () => {
-        checkForUpdates();
+        setTimeout(() => checkForUpdates(false), 5000);
+        setInterval(() => checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
     });
 }
 app.whenReady().then(createWindow);

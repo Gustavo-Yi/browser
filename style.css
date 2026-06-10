@@ -801,6 +801,117 @@ button svg,
     opacity: 1;
 }
 
+.update-dock {
+    position: fixed;
+    left: 18px;
+    bottom: 18px;
+    z-index: 1250;
+    width: 286px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+    color: #1f2a44;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 20px 52px rgba(15, 23, 42, 0.18);
+}
+
+.update-dock[hidden] {
+    display: none;
+}
+
+.update-dock-main {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+}
+
+.update-dock-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    color: var(--primary-strong);
+    background: var(--primary-soft);
+}
+
+.update-dock.error .update-dock-icon {
+    color: var(--warning);
+    background: var(--warning-soft);
+}
+
+.update-dock-copy {
+    min-width: 0;
+}
+
+.update-dock-copy strong,
+.update-dock-copy span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.update-dock-copy strong {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.update-dock-copy span {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 760;
+}
+
+.update-dock-progress {
+    height: 7px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #edf1f5;
+}
+
+.update-dock-progress[hidden] {
+    display: none;
+}
+
+.update-dock-progress span {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    display: block;
+    background: var(--primary);
+    transition: width 0.2s ease;
+}
+
+.update-dock-action {
+    height: 34px;
+    border: 0;
+    border-radius: 7px;
+    color: #ffffff;
+    background: var(--primary);
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.update-dock-action:hover {
+    background: var(--primary-strong);
+}
+
+.update-dock-action:disabled {
+    cursor: default;
+    opacity: 0.74;
+}
+
+.update-dock-action[hidden] {
+    display: none;
+}
+
 .modal-overlay {
     position: fixed;
     inset: 0;

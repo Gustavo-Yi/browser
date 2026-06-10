@@ -46,6 +46,12 @@ const updateProgressBar = document.getElementById('update-progress-bar');
 const updateStatus = document.getElementById('update-status');
 const updateChangelog = document.getElementById('update-changelog');
 const toastHost = document.getElementById('toast-host');
+const updateDock = document.getElementById('update-dock');
+const updateDockTitle = document.getElementById('update-dock-title');
+const updateDockDetail = document.getElementById('update-dock-detail');
+const updateDockProgress = document.getElementById('update-dock-progress');
+const updateDockBar = document.getElementById('update-dock-bar');
+const updateDockAction = document.getElementById('update-dock-action');
 
 let isEditMode = false;
 let currentEditId = null;
@@ -309,8 +315,38 @@ function confirmDelete(id) {
 }
 
 function handleManualUpdate() {
-    showToast('正在检查更新...');
+    setUpdateDockState('checking', {
+        title: '正在检查更新',
+        detail: '正在连接 GitHub Release'
+    });
     ipcRenderer.send('manual-check-update');
+}
+
+function setUpdateDockState(state, options = {}) {
+    const {
+        title = '',
+        detail = '',
+        progress = null,
+        actionLabel = '',
+        onAction = null
+    } = options;
+
+    updateDock.hidden = state === 'hidden';
+    updateDock.className = `update-dock ${state}`;
+    updateDockTitle.textContent = title;
+    updateDockDetail.textContent = detail;
+
+    const hasProgress = typeof progress === 'number';
+    updateDockProgress.hidden = !hasProgress;
+    if (hasProgress) {
+        const value = Math.max(0, Math.min(100, progress));
+        updateDockBar.style.width = `${value}%`;
+    }
+
+    updateDockAction.hidden = !actionLabel;
+    updateDockAction.disabled = false;
+    updateDockAction.textContent = actionLabel;
+    updateDockAction.onclick = onAction || null;
 }
 
 async function initApp() {
@@ -400,55 +436,61 @@ async function initApp() {
         if (action === 'delete') confirmDelete(id);
     });
 
+    ipcRenderer.on('update-checking', (event, payload) => {
+        if (!payload?.manual) return;
+        setUpdateDockState('checking', {
+            title: '正在检查更新',
+            detail: '正在连接 GitHub Release'
+        });
+    });
+
     ipcRenderer.on('update-available', (event, info) => {
-        showModal({
-            icon: 'download',
-            title: '发现新版本',
-            message: `YT多开浏览器 V ${info?.version || ''} 已准备更新。`,
-            actions: [
-                { label: '稍后提醒', onClick: closeModal },
-                {
-                    label: '开始下载',
-                    variant: 'primary',
-                    onClick: () => {
-                        updateProgressContainer.hidden = false;
-                        updateChangelog.hidden = !info?.releaseNotes;
-                        updateChangelog.textContent = info?.releaseNotes || '';
-                        ipcRenderer.send('start-download');
-                    }
-                }
-            ]
+        setUpdateDockState('downloading', {
+            title: `发现新版本 ${info?.version || ''}`.trim(),
+            detail: '正在后台下载更新',
+            progress: 0
         });
     });
 
     ipcRenderer.on('update-progress', (event, percent) => {
         const value = Math.max(0, Math.min(100, Number(percent) || 0));
-        updateProgressBar.style.width = `${value}%`;
-        updateStatus.textContent = `正在下载: ${value.toFixed(0)}%`;
-    });
-
-    ipcRenderer.on('update-ready', () => {
-        updateProgressBar.style.width = '100%';
-        updateStatus.textContent = '下载完成，重启后安装';
-        modalActions.innerHTML = '';
-        const restartButton = document.createElement('button');
-        restartButton.className = 'btn primary';
-        restartButton.textContent = '重启安装';
-        restartButton.onclick = () => ipcRenderer.send('restart-app');
-        modalActions.appendChild(restartButton);
-    });
-
-    ipcRenderer.on('update-error', () => {
-        showModal({
-            icon: 'warn',
-            tone: 'warning',
-            title: '更新检查失败',
-            message: '无法连接到更新服务，请检查网络后再试。',
-            actions: [{ label: '知道了', onClick: closeModal }]
+        setUpdateDockState('downloading', {
+            title: '正在下载更新',
+            detail: `${value.toFixed(0)}%`,
+            progress: value
         });
     });
 
-    ipcRenderer.on('update-not-available', () => showToast('当前已是最新版本'));
+    ipcRenderer.on('update-ready', () => {
+        setUpdateDockState('ready', {
+            title: '更新已下载',
+            detail: '点击后关闭浏览器环境并重启客户端',
+            progress: 100,
+            actionLabel: '完成更新',
+            onAction: () => {
+                updateDockAction.disabled = true;
+                updateDockAction.textContent = '正在重启';
+                updateDockTitle.textContent = '正在完成更新';
+                updateDockDetail.textContent = '正在关闭浏览器环境并重启客户端';
+                ipcRenderer.send('restart-app');
+            }
+        });
+    });
+
+    ipcRenderer.on('update-error', () => {
+        setUpdateDockState('error', {
+            title: '更新失败',
+            detail: '网络异常或下载失败',
+            actionLabel: '重试',
+            onAction: handleManualUpdate
+        });
+    });
+
+    ipcRenderer.on('update-not-available', (event, payload) => {
+        if (!payload?.manual) return;
+        setUpdateDockState('hidden');
+        showToast('当前已是最新版本');
+    });
     ipcRenderer.on('chrome-path-set', () => {
         chromeStateLabel.textContent = '已连接';
         closeModal();
