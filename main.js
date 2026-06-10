@@ -63,8 +63,77 @@ const { spawn, execSync } = require('child_process');
 const USER_DATA = app.getPath('userData');
 const PROFILES_ROOT = path.join(USER_DATA, 'profiles');
 const CONFIG_PATH = path.join(USER_DATA, 'config.json');
+const LEGACY_USER_DATA_PATHS = [
+    path.join(app.getPath('appData'), '钰彤指纹浏览器')
+];
 
-// 自动创建必要的持久化目录
+function readAccountArray(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return [];
+        const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        return Array.isArray(value) ? value : [];
+    } catch (error) {
+        log.warn(`Unable to read account file: ${filePath}`, error);
+        return [];
+    }
+}
+
+function isNonEmptyDirectory(dirPath) {
+    try {
+        return fs.existsSync(dirPath) && fs.readdirSync(dirPath).length > 0;
+    } catch (error) {
+        log.warn(`Unable to inspect directory: ${dirPath}`, error);
+        return false;
+    }
+}
+
+function copyMissingDirectory(sourceDir, targetDir) {
+    if (!fs.existsSync(sourceDir)) return;
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+    for (const item of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+        const sourcePath = path.join(sourceDir, item.name);
+        const targetPath = path.join(targetDir, item.name);
+        if (item.isDirectory()) {
+            copyMissingDirectory(sourcePath, targetPath);
+        } else if (!fs.existsSync(targetPath)) {
+            fs.copyFileSync(sourcePath, targetPath);
+        }
+    }
+}
+
+function migrateLegacyUserData() {
+    const currentAccountsPath = path.join(USER_DATA, 'accounts.json');
+    let hasCurrentAccounts = readAccountArray(currentAccountsPath).length > 0;
+
+    for (const legacyUserData of LEGACY_USER_DATA_PATHS) {
+        if (!fs.existsSync(legacyUserData) || legacyUserData === USER_DATA) continue;
+
+        const legacyAccountsPath = path.join(legacyUserData, 'accounts.json');
+        const legacyAccounts = readAccountArray(legacyAccountsPath);
+        if (!hasCurrentAccounts && legacyAccounts.length > 0) {
+            if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
+            fs.copyFileSync(legacyAccountsPath, currentAccountsPath);
+            hasCurrentAccounts = true;
+            log.info(`Migrated ${legacyAccounts.length} accounts from ${legacyUserData}`);
+        }
+
+        const legacyConfigPath = path.join(legacyUserData, 'config.json');
+        if (!fs.existsSync(CONFIG_PATH) && fs.existsSync(legacyConfigPath)) {
+            if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
+            fs.copyFileSync(legacyConfigPath, CONFIG_PATH);
+            log.info(`Migrated config from ${legacyUserData}`);
+        }
+
+        const legacyProfilesRoot = path.join(legacyUserData, 'profiles');
+        if (isNonEmptyDirectory(legacyProfilesRoot) && !isNonEmptyDirectory(PROFILES_ROOT)) {
+            copyMissingDirectory(legacyProfilesRoot, PROFILES_ROOT);
+            log.info(`Migrated profiles from ${legacyProfilesRoot}`);
+        }
+    }
+}
+
+migrateLegacyUserData();
 if (!fs.existsSync(PROFILES_ROOT)) fs.mkdirSync(PROFILES_ROOT, { recursive: true });
 
 function normalizeAccount(account) {
