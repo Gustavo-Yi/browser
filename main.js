@@ -216,6 +216,33 @@ class AccountManager {
         return null;
     }
 
+    ensureRestoreLastSession(profilePath) {
+        const defaultPath = path.join(profilePath, 'Default');
+        const preferencesPath = path.join(defaultPath, 'Preferences');
+        if (!fs.existsSync(defaultPath)) fs.mkdirSync(defaultPath, { recursive: true });
+
+        let preferences = {};
+        try {
+            if (fs.existsSync(preferencesPath)) {
+                preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
+            }
+        } catch (error) {
+            log.warn(`Unable to read Chrome preferences: ${preferencesPath}`, error);
+            preferences = {};
+        }
+
+        preferences.session = {
+            ...(preferences.session || {}),
+            restore_on_startup: 1
+        };
+
+        try {
+            fs.writeFileSync(preferencesPath, JSON.stringify(preferences), 'utf8');
+        } catch (error) {
+            log.warn(`Unable to write Chrome preferences: ${preferencesPath}`, error);
+        }
+    }
+
     async launchProfile(accountId) {
         const chromePath = this.findChromePath();
         if (!chromePath) { this.mainWindow.webContents.send('chrome-not-found'); return; }
@@ -225,10 +252,11 @@ class AccountManager {
 
         const profilePath = this.getProfilePath(accountId);
         if (!fs.existsSync(profilePath)) fs.mkdirSync(profilePath, { recursive: true });
+        this.ensureRestoreLastSession(profilePath);
 
         const args = [
             `--user-data-dir=${profilePath}`,
-            "--no-first-run", "--no-default-browser-check", "--start-maximized", "--new-window"
+            "--no-first-run", "--no-default-browser-check", "--start-maximized", "--restore-last-session"
         ];
 
         try {
