@@ -235,6 +235,11 @@ class AccountManager {
             ...(preferences.session || {}),
             restore_on_startup: 1
         };
+        preferences.profile = {
+            ...(preferences.profile || {}),
+            exit_type: 'Normal',
+            exited_cleanly: true
+        };
 
         try {
             fs.writeFileSync(preferencesPath, JSON.stringify(preferences), 'utf8');
@@ -256,7 +261,11 @@ class AccountManager {
 
         const args = [
             `--user-data-dir=${profilePath}`,
-            "--no-first-run", "--no-default-browser-check", "--start-maximized", "--restore-last-session"
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--start-maximized",
+            "--restore-last-session",
+            "--hide-crash-restore-bubble"
         ];
 
         try {
@@ -282,6 +291,7 @@ class AccountManager {
     }
 
     closeAllProfiles() {
+        const runningAccountIds = [...this.activeProcesses.keys()];
         const pids = [...new Set(this.activeProcesses.values())]
             .map(pid => Number.parseInt(pid, 10))
             .filter(pid => Number.isInteger(pid) && pid > 0);
@@ -307,6 +317,9 @@ class AccountManager {
         }
 
         this.activeProcesses.clear();
+        for (const accountId of runningAccountIds) {
+            this.ensureRestoreLastSession(this.getProfilePath(accountId));
+        }
         this.mainWindow.webContents.send('accounts-list', this.getAccountsView());
     }
 
