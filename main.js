@@ -7,6 +7,20 @@ autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
 
+let mainWindow = null;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (!mainWindow) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        if (!mainWindow.isVisible()) mainWindow.show();
+        mainWindow.focus();
+    });
+}
+
 const RECOVERABLE_NETWORK_CODES = new Set([
     'ECONNRESET',
     'ECONNABORTED',
@@ -424,6 +438,7 @@ function createWindow() {
         webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: false, nodeIntegration: true }
     });
     const manager = new AccountManager(win);
+    mainWindow = win;
     let allowWindowClose = false;
     let isClosePromptOpen = false;
     let isCheckingForUpdate = false;
@@ -432,6 +447,10 @@ function createWindow() {
     let manualUpdateRequest = false;
 
     win.loadFile('index.html');
+
+    win.on('closed', () => {
+        if (mainWindow === win) mainWindow = null;
+    });
 
     app.once('before-quit', () => {
         allowWindowClose = true;
@@ -585,6 +604,8 @@ function createWindow() {
         setInterval(() => checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
     });
 }
-app.whenReady().then(createWindow);
+if (gotSingleInstanceLock) {
+    app.whenReady().then(createWindow);
+}
 
 app.on('window-all-closed', () => app.quit());
