@@ -5,6 +5,8 @@ const emptyState = document.getElementById('empty-state');
 const addAccountBtn = document.getElementById('add-account-btn');
 const emptyCreateBtn = document.getElementById('empty-create-btn');
 const bulkAccountBtn = document.getElementById('bulk-account-btn');
+const launchAllBtn = document.getElementById('launch-all-btn');
+const closeAllBtn = document.getElementById('close-all-btn');
 const profileSearch = document.getElementById('profile-search');
 const totalAccountsLabel = document.getElementById('total-accounts');
 const runningCountLabel = document.getElementById('running-count');
@@ -58,12 +60,16 @@ let currentEditId = null;
 let currentDataId = null;
 let accountsData = [];
 let activeFilter = 'all';
+let isLaunchingAll = false;
+let isClosingAll = false;
 
 const ICONS = {
     grid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
     folder: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h4"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v6h-6"/></svg>',
     plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 4 14 8-14 8Z"/></svg>',
+    'x-circle': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>',
     search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
     edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
     trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
@@ -113,6 +119,30 @@ function updateStats(accounts) {
     workspaceSubtitle.textContent = `${accounts.length} 个独立浏览器环境`;
 }
 
+function getRunningCount(accounts = accountsData) {
+    return accounts.filter(acc => acc.isRunning).length;
+}
+
+function getIdleCount(accounts = accountsData) {
+    return accounts.filter(acc => !acc.isRunning).length;
+}
+
+function setButtonLabel(button, label) {
+    const labelNode = button?.querySelector('.btn-label');
+    if (labelNode) labelNode.textContent = label;
+}
+
+function updateBatchButtonsState() {
+    const totalCount = accountsData.length;
+    const idleCount = getIdleCount();
+    const runningCount = getRunningCount();
+
+    launchAllBtn.disabled = isLaunchingAll || isClosingAll || totalCount === 0 || idleCount === 0;
+    closeAllBtn.disabled = isLaunchingAll || isClosingAll || runningCount === 0;
+    setButtonLabel(launchAllBtn, isLaunchingAll ? '正在按序启动' : '按序启动全部');
+    setButtonLabel(closeAllBtn, isClosingAll ? '正在关闭' : '关闭全部');
+}
+
 function getFilteredAccounts() {
     const query = (profileSearch.value || '').trim().toLowerCase();
     return accountsData.filter((acc, index) => {
@@ -132,6 +162,7 @@ function getFilteredAccounts() {
 function renderAccounts(accounts) {
     accountsData = accounts;
     updateStats(accounts);
+    updateBatchButtonsState();
 
     const visibleAccounts = getFilteredAccounts();
     accountList.innerHTML = '';
@@ -314,6 +345,71 @@ function confirmDelete(id) {
     });
 }
 
+async function launchAllProfiles() {
+    const idleCount = getIdleCount();
+    if (accountsData.length === 0) return showToast('请先创建环境');
+    if (idleCount === 0) return showToast('所有环境都已在运行');
+
+    isLaunchingAll = true;
+    updateBatchButtonsState();
+    showToast(`开始按顺序启动 ${idleCount} 个环境`);
+
+    try {
+        const result = await ipcRenderer.invoke('launch-all-profiles');
+        if (result?.reason === 'chrome-not-found') return;
+        if (result?.launched > 0) {
+            showToast(`已按顺序启动 ${result.launched} 个环境`);
+        } else {
+            showToast('没有需要启动的环境');
+        }
+    } catch (error) {
+        showToast('批量启动失败，请重试');
+    } finally {
+        isLaunchingAll = false;
+        updateBatchButtonsState();
+        ipcRenderer.send('get-accounts');
+    }
+}
+
+function confirmCloseAllProfiles() {
+    const runningCount = getRunningCount();
+    if (runningCount === 0) return showToast('当前没有运行中的环境');
+
+    showModal({
+        icon: 'x-circle',
+        tone: 'danger',
+        title: '关闭全部浏览器？',
+        message: `将关闭当前 ${runningCount} 个正在运行的浏览器环境，登录数据会继续保留。`,
+        actions: [
+            { label: '取消', onClick: closeModal },
+            {
+                label: '关闭全部',
+                variant: 'danger',
+                onClick: closeAllProfiles
+            }
+        ]
+    });
+}
+
+async function closeAllProfiles() {
+    isClosingAll = true;
+    updateBatchButtonsState();
+
+    try {
+        const result = await ipcRenderer.invoke('close-all-profiles');
+        closeModal();
+        const closedCount = result?.closed || 0;
+        showToast(closedCount > 0 ? `已关闭 ${closedCount} 个浏览器环境` : '没有需要关闭的浏览器');
+    } catch (error) {
+        closeModal();
+        showToast('关闭全部失败，请重试');
+    } finally {
+        isClosingAll = false;
+        updateBatchButtonsState();
+        ipcRenderer.send('get-accounts');
+    }
+}
+
 function handleManualUpdate() {
     setUpdateDockState('checking', {
         title: '正在检查更新',
@@ -357,6 +453,10 @@ async function initApp() {
     ipcRenderer.on('accounts-list', (event, accounts) => renderAccounts(accounts));
     ipcRenderer.on('process-started', () => ipcRenderer.send('get-accounts'));
     ipcRenderer.on('process-ended', () => ipcRenderer.send('get-accounts'));
+    ipcRenderer.on('launch-all-progress', (event, payload) => {
+        if (!isLaunchingAll || !payload?.total) return;
+        setButtonLabel(launchAllBtn, `启动 ${payload.current}/${payload.total}`);
+    });
     ipcRenderer.on('chrome-not-found', () => {
         chromeStateLabel.textContent = '未配置';
         showModal({
@@ -374,6 +474,8 @@ async function initApp() {
     addAccountBtn.onclick = openCreateDrawer;
     emptyCreateBtn.onclick = openCreateDrawer;
     bulkAccountBtn.onclick = openBulkDrawer;
+    launchAllBtn.onclick = launchAllProfiles;
+    closeAllBtn.onclick = confirmCloseAllProfiles;
     drawerClose.onclick = closeDrawer;
     drawerCancel.onclick = closeDrawer;
     bulkCancel.onclick = closeDrawer;

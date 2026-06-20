@@ -156,10 +156,15 @@ function formatLaunchTime() {
     });
 }
 
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 class AccountManager {
     constructor(mainWindow) {
         this.mainWindow = mainWindow;
         this.activeProcesses = new Map();
+        this.frontFocusTimer = null;
         this.accounts = this.loadAccounts();
         this.config = this.loadConfig();
         this.saveAccounts();
@@ -216,6 +221,23 @@ class AccountManager {
         return null;
     }
 
+    holdMainWindowInFront(durationMs = 2200) {
+        if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
+        if (this.frontFocusTimer) clearTimeout(this.frontFocusTimer);
+
+        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+        this.mainWindow.show();
+        this.mainWindow.setAlwaysOnTop(true);
+        if (typeof this.mainWindow.moveTop === 'function') this.mainWindow.moveTop();
+        this.mainWindow.focus();
+
+        this.frontFocusTimer = setTimeout(() => {
+            this.frontFocusTimer = null;
+            if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
+            this.mainWindow.setAlwaysOnTop(false);
+        }, durationMs);
+    }
+
     ensureRestoreLastSession(profilePath) {
         const defaultPath = path.join(profilePath, 'Default');
         const preferencesPath = path.join(defaultPath, 'Preferences');
@@ -248,14 +270,18 @@ class AccountManager {
         }
     }
 
-    async launchProfile(accountId) {
-        const chromePath = this.findChromePath();
-        if (!chromePath) { this.mainWindow.webContents.send('chrome-not-found'); return; }
+    async launchProfile(accountId, options = {}) {
+        const chromePath = options.chromePath || this.findChromePath();
+        if (!chromePath) {
+            this.mainWindow.webContents.send('chrome-not-found');
+            return { ok: false, reason: 'chrome-not-found' };
+        }
 
-        const account = this.accounts.find(a => a.id === accountId);
-        if (!account || this.activeProcesses.has(accountId)) return;
+        const account = this.accounts.find(a => a.id === String(accountId));
+        if (!account) return { ok: false, reason: 'not-found' };
+        if (this.activeProcesses.has(account.id)) return { ok: false, reason: 'already-running' };
 
-        const profilePath = this.getProfilePath(accountId);
+        const profilePath = this.getProfilePath(account.id);
         if (!fs.existsSync(profilePath)) fs.mkdirSync(profilePath, { recursive: true });
         this.ensureRestoreLastSession(profilePath);
 
@@ -269,25 +295,67 @@ class AccountManager {
         ];
 
         try {
+            if (options.keepClientInFront !== false) this.holdMainWindowInFront(2600);
             const child = spawn(chromePath, args, { detached: true });
             account.lastUsed = formatLaunchTime();
             this.saveAccounts();
-            this.activeProcesses.set(accountId, child.pid);
-            this.mainWindow.webContents.send('process-started', accountId);
+            this.activeProcesses.set(account.id, child.pid);
+            this.mainWindow.webContents.send('process-started', account.id);
             this.mainWindow.webContents.send('accounts-list', this.getAccountsView());
+            if (options.keepClientInFront !== false) this.holdMainWindowInFront(2600);
             child.on('error', (err) => {
                 log.error('Failed to launch Chrome', err);
-                this.activeProcesses.delete(accountId);
-                this.mainWindow.webContents.send('process-ended', accountId);
+                this.activeProcesses.delete(account.id);
+                this.mainWindow.webContents.send('process-ended', account.id);
             });
             child.on('exit', () => {
-                this.activeProcesses.delete(accountId);
-                this.mainWindow.webContents.send('process-ended', accountId);
+                this.activeProcesses.delete(account.id);
+                this.mainWindow.webContents.send('process-ended', account.id);
             });
             child.unref();
+            return { ok: true, id: account.id };
         } catch (err) {
             log.error('Failed to launch Chrome', err);
+            return { ok: false, reason: 'launch-failed' };
         }
+    }
+
+    async launchAllProfilesInOrder() {
+        const chromePath = this.findChromePath();
+        if (!chromePath) {
+            this.mainWindow.webContents.send('chrome-not-found');
+            return { requested: 0, launched: 0, skipped: 0, failed: 0, reason: 'chrome-not-found' };
+        }
+
+        const pendingAccounts = this.accounts.filter(account => !this.activeProcesses.has(account.id));
+        const skipped = this.accounts.length - pendingAccounts.length;
+        if (pendingAccounts.length === 0) {
+            this.holdMainWindowInFront(1200);
+            return { requested: 0, launched: 0, skipped, failed: 0 };
+        }
+
+        this.holdMainWindowInFront(Math.max(3200, pendingAccounts.length * 700 + 2400));
+
+        let launched = 0;
+        let failed = 0;
+        for (const [index, account] of pendingAccounts.entries()) {
+            const result = await this.launchProfile(account.id, { chromePath, keepClientInFront: false });
+            if (result?.ok) launched += 1;
+            else failed += 1;
+
+            this.mainWindow.webContents.send('launch-all-progress', {
+                current: index + 1,
+                total: pendingAccounts.length,
+                launched,
+                failed
+            });
+            this.holdMainWindowInFront(Math.max(2200, (pendingAccounts.length - index) * 650 + 1600));
+
+            if (index < pendingAccounts.length - 1) await wait(650);
+        }
+
+        this.holdMainWindowInFront(2600);
+        return { requested: pendingAccounts.length, launched, skipped, failed };
     }
 
     closeAllProfiles() {
@@ -295,6 +363,7 @@ class AccountManager {
         const pids = [...new Set(this.activeProcesses.values())]
             .map(pid => Number.parseInt(pid, 10))
             .filter(pid => Number.isInteger(pid) && pid > 0);
+        const closedCount = runningAccountIds.length;
 
         for (const pid of pids) {
             try {
@@ -321,6 +390,7 @@ class AccountManager {
             this.ensureRestoreLastSession(this.getProfilePath(accountId));
         }
         this.mainWindow.webContents.send('accounts-list', this.getAccountsView());
+        return { closed: closedCount };
     }
 
     async openProfileFolder(accountId) {
@@ -396,6 +466,8 @@ function createWindow() {
 
     ipcMain.on('get-accounts', (e) => e.reply('accounts-list', manager.getAccountsView()));
     ipcMain.on('launch-profile', (e, id) => manager.launchProfile(id));
+    ipcMain.handle('launch-all-profiles', () => manager.launchAllProfilesInOrder());
+    ipcMain.handle('close-all-profiles', () => manager.closeAllProfiles());
     ipcMain.on('add-account', (e, account) => {
         const newAccount = normalizeAccount({ ...account, id: Date.now().toString() });
         manager.accounts.push(newAccount); manager.saveAccounts();

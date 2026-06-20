@@ -236,6 +236,19 @@ button svg,
 .header-actions {
     flex: 0 0 auto;
     margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.action-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.action-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--line);
 }
 
 .btn {
@@ -278,6 +291,30 @@ button svg,
     border-color: var(--danger);
     color: #ffffff;
     background: var(--danger);
+}
+
+.btn.danger-outline {
+    border-color: #f0b9c2;
+    color: var(--danger);
+    background: var(--danger-soft);
+}
+
+.btn.danger-outline:hover {
+    border-color: #e58b99;
+    background: #ffe7eb;
+}
+
+.btn:disabled {
+    border-color: var(--line);
+    color: var(--muted-soft);
+    background: #f3f6fa;
+    cursor: default;
+    opacity: 0.78;
+}
+
+.btn:disabled:hover {
+    border-color: var(--line);
+    background: #f3f6fa;
 }
 
 .btn.full-width {
@@ -1028,6 +1065,13 @@ button svg,
 
     .header-actions {
         gap: 8px;
+        justify-content: flex-start;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .action-divider {
+        display: none;
     }
 
     .btn {

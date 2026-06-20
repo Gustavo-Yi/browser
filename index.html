@@ -60,14 +60,27 @@
                     <p id="workspace-subtitle">0 个独立浏览器环境</p>
                 </div>
                 <div class="header-actions">
-                    <button class="btn" id="bulk-account-btn" type="button">
-                        <span data-icon="plus"></span>
-                        批量新建
-                    </button>
-                    <button class="btn primary" id="add-account-btn" type="button">
-                        <span data-icon="plus"></span>
-                        新建环境
-                    </button>
+                    <div class="action-group" aria-label="批量操作">
+                        <button class="btn primary" id="launch-all-btn" type="button">
+                            <span data-icon="play"></span>
+                            <span class="btn-label">按序启动全部</span>
+                        </button>
+                        <button class="btn danger-outline" id="close-all-btn" type="button">
+                            <span data-icon="x-circle"></span>
+                            <span class="btn-label">关闭全部</span>
+                        </button>
+                    </div>
+                    <span class="action-divider" aria-hidden="true"></span>
+                    <div class="action-group" aria-label="创建操作">
+                        <button class="btn" id="bulk-account-btn" type="button">
+                            <span data-icon="plus"></span>
+                            批量新建
+                        </button>
+                        <button class="btn primary" id="add-account-btn" type="button">
+                            <span data-icon="plus"></span>
+                            新建环境
+                        </button>
+                    </div>
                 </div>
             </header>
 
