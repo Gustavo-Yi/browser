@@ -77,7 +77,6 @@ const { spawn, execSync, execFileSync } = require('child_process');
 const USER_DATA = app.getPath('userData');
 const PROFILES_ROOT = path.join(USER_DATA, 'profiles');
 const CONFIG_PATH = path.join(USER_DATA, 'config.json');
-const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const LEGACY_USER_DATA_PATHS = [
     path.join(app.getPath('appData'), '钰彤指纹浏览器')
 ];
@@ -598,11 +597,6 @@ function createWindow() {
         handleUpdateError(err);
     });
 
-    // 可以在窗口显示后检查更新
-    win.once('ready-to-show', () => {
-        setTimeout(() => checkForUpdates(false), 5000);
-        setInterval(() => checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
-    });
 }
 if (gotSingleInstanceLock) {
     app.whenReady().then(createWindow);
