@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*' # 当你推送以 v 开头的标签（如 v1.0.1）时触发
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build (never moves the tag)
+        required: true
+        default: v2.2.13
 
 jobs:
   release:
@@ -14,6 +20,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -24,8 +32,31 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Download and verify official Electron runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = node -p "require('./node_modules/electron/package.json').version"
+          $asset = "electron-v$version-win32-x64.zip"
+          $cache = Join-Path $env:RUNNER_TEMP "electron-$version"
+          New-Item -ItemType Directory -Path $cache -Force | Out-Null
+          gh release download "v$version" --repo electron/electron --pattern $asset --pattern SHASUMS256.txt --dir $cache
+          if ($LASTEXITCODE -ne 0) { throw 'Official Electron download failed' }
+          $line = Get-Content (Join-Path $cache 'SHASUMS256.txt') | Where-Object { $_ -match ('\s+\*?' + [regex]::Escape($asset) + '$') }
+          if (@($line).Count -ne 1) { throw 'Missing or ambiguous official checksum' }
+          $expected = ($line -split '\s+')[0]
+          $actual = (Get-FileHash -LiteralPath (Join-Path $cache $asset) -Algorithm SHA256).Hash
+          if ($expected -ne $actual) { throw 'Electron SHA256 mismatch' }
+          Expand-Archive -LiteralPath (Join-Path $cache $asset) -DestinationPath 'node_modules/electron/dist' -Force
+          Set-Content -LiteralPath 'node_modules/electron/path.txt' -Value 'electron.exe' -NoNewline -Encoding ascii
+          Set-Content -LiteralPath 'node_modules/electron/dist/version' -Value $version -NoNewline -Encoding ascii
+          Write-Output "Verified official Electron $version SHA256: $actual"
+
       - name: Verify release tag matches package version
-        run: node -e "if(process.env.GITHUB_REF_NAME !== 'v'+require('./package.json').version)process.exit(1)"
+        env:
+          YT_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: node -e "if(process.env.YT_RELEASE_TAG !== 'v'+require('./package.json').version)process.exit(1)"
 
       - name: Regression tests
         run: npm test
