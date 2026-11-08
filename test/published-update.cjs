@@ -36,10 +36,14 @@ async function until(fn, timeout = 60000) {
     }
     throw Error('Timed out: ' + (last?.stack || fn.toString()));
 }
-async function download(url, file) {
-    const response = await fetch(url, {signal:AbortSignal.timeout(180000)});
-    assert.equal(response.status, 200, 'Download ' + url);
-    const bytes = Buffer.from(await response.arrayBuffer()); fs.writeFileSync(file, bytes); return bytes;
+async function download(asset, file, tag) {
+    // Bootstrap via the official asset API; direct browser-download requests can
+    // be blocked by the runner's gateway. The installed updater itself is NEVER
+    // redirected, mocked, or patched and must download through its normal feed.
+    const result = spawnSync('gh',['release','download',tag,'--repo',repo,'--pattern',asset.name,'--output',file],
+        {windowsHide:true,encoding:'utf8',timeout:180000});
+    assert.equal(result.status,0,result.stderr || result.error?.message);
+    return fs.readFileSync(file);
 }
 async function release(tag) {
     const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`, {
@@ -153,14 +157,14 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const published = await release('v'+target), previous = await release('v'+oldVersion);
     check('target is a published stable release', !published.draft && !published.prerelease);
     const latestAsset = published.assets.find(x => x.name === 'latest.yml'); assert(latestAsset);
-    const manifest = yaml.load((await download(latestAsset.browser_download_url,path.join(evidence,'latest.yml'))).toString());
+    const manifest = yaml.load((await download(latestAsset,path.join(evidence,'latest.yml'),'v'+target)).toString());
     assert.equal(manifest.version,target);
     const entry = manifest.files.find(x => x.url.endsWith('.exe')); assert(entry);
     const installerAsset = published.assets.find(x => x.name === decodeURIComponent(entry.url)); assert(installerAsset, entry.url);
-    const installerBytes = await download(installerAsset.browser_download_url,path.join(root,'new-setup.exe'));
+    const installerBytes = await download(installerAsset,path.join(root,'new-setup.exe'),'v'+target);
     check('public update manifest size and SHA512 match downloadable installer', installerBytes.length===entry.size && hash(installerBytes,'sha512','base64')===entry.sha512);
     const oldAsset = previous.assets.find(x => x.name.endsWith('.exe')); assert(oldAsset);
-    const oldSetup = path.join(root,'old-setup.exe'); await download(oldAsset.browser_download_url,oldSetup);
+    const oldSetup = path.join(root,'old-setup.exe'); await download(oldAsset,oldSetup,'v'+oldVersion);
     // Both registry/shortcut changes and the default app data belong only to this disposable runner.
     const installed = spawnSync(oldSetup, ['/S','/CURRENTUSER',`/D=${installDir}`], {env:cleanEnv(),windowsHide:true,timeout:120000});
     assert.equal(installed.status,0);assert.equal(versionOnDisk(),oldVersion);
@@ -177,7 +181,8 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const config = yaml.load(fs.readFileSync(path.join(installDir,'resources/app-update.yml'),'utf8'));
     assert.equal(config.owner,'Gustavo-Yi');assert.equal(config.repo,'browser');
     await click('#nav-update-btn');
-    await until(() => page.evaluate('document.querySelector("#update-dock")?.classList.contains("ready")'),300000);
+    const downloadState = await until(() => page.evaluate(`(()=>{const d=document.querySelector('#update-dock');return d&&(d.classList.contains('ready')||d.classList.contains('error'))&&{ready:d.classList.contains('ready'),text:d.innerText}})()`),300000);
+    assert(downloadState.ready,downloadState.text);
     await screenshot('old-client-update-ready');
     const pendingDir = path.join(process.env.LOCALAPPDATA,config.updaterCacheDirName,'pending');
     const downloaded = fs.readdirSync(pendingDir).find(x=>x.endsWith('.exe'));assert(downloaded);
@@ -200,7 +205,9 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     await until(()=>!ps(`@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE }).Count`).stdout.trim().match(/^[1-9]/));
     await start(target);
     const archive = path.join(installDir,'resources/app.asar');
-    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js']) assert(asar.extractFile(archive,file).equals(fs.readFileSync(path.join(__dirname,'..',file))),file);
+    // Windows Git checkout can use CRLF while a local release build uses LF.
+    const normalized = value => value.toString('utf8').replace(/\r\n/g,'\n');
+    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
     const state = await page.evaluate('electronAPI.getState()');assert.deepEqual(state.accounts.map(x=>x.id),ids);
     check('new installed production code uses the original default data directory and IDs',true);
     await click('[data-open-appearance]');await click('dialog [data-mode="dark"]');await click('[data-preset="#8b5cf6"]');
