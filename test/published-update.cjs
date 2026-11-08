@@ -140,6 +140,15 @@ async function chromeStorage(write) {
                 return tab && {tab:tab.webSocketDebuggerUrl,browser:`ws://127.0.0.1:${port}${suffix}`};
             });
             const control = await cdp(endpoint.browser), tab = await cdp(endpoint.tab); chromeBrowsers.push(control);
+            // A DevTools target can advertise its requested URL before its initial
+            // opaque document is replaced. Wait for the real loopback page before
+            // accessing cookies / storage (especially on slower hosted runners).
+            try {
+                await until(() => tab.evaluate(`location.origin===${JSON.stringify(origin)}&&document.readyState==='complete'&&document.title==='Isolated upgrade fixture'`));
+            } catch (error) {
+                fs.writeFileSync(path.join(evidence,'chrome-fixture-failure.json'),JSON.stringify(await tab.evaluate('({url:location.href,origin:location.origin,ready:document.readyState,title:document.title,text:document.body?.innerText})'),null,2));
+                throw error;
+            }
             if (write) {
                 await tab.evaluate(`document.cookie='fixtureLogin=${id}; Max-Age=86400; Path=/; SameSite=Lax';localStorage.setItem('fixtureLogin','${id}');new Promise((resolve,reject)=>{const r=indexedDB.open('login-fixture',1);r.onupgradeneeded=()=>r.result.createObjectStore('state');r.onerror=()=>reject(r.error);r.onsuccess=()=>{const db=r.result,tx=db.transaction('state','readwrite');tx.objectStore('state').put('${id}','session');tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>reject(tx.error)}})`);
             } else {
