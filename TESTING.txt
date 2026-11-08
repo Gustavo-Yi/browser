@@ -1,0 +1,70 @@
+YT 多开浏览器 2.2.13 — 修复与回归说明
+
+兼容性约束
+- package name、productName、appId、userData 定位方式均未改变。
+- 已有环境 ID 和 profiles/<id> 路径不重建、不改名。
+- 管理客户端不再写 Chrome Preferences，不读写 Cookies、Local Storage 或 IndexedDB。
+- 环境列表和配置采用临时文件 + fsync + 替换；写入前备份上一份有效内容为 .bak。
+- 读取失败、重复/不合法 ID、外部修改均不覆盖原文件。备份可用于只读显示；请在退出客户端后核对并恢复文件，再重新打开。
+- 删除仅移除列表记录，不删除 profile；运行中的环境必须先关闭。
+- 关闭采用验证进程身份后的 WM_CLOSE；等待实际退出。浏览器提示、权限限制或超时会显示失败，不再自动强制结束进程。
+
+修复范围
+1. 防止损坏的 accounts.json / config.json 被空值覆盖；保留原件和有效备份。
+2. 不再直接修改浏览器 Preferences，保留原有浏览器自行维护的会话/偏好设置。
+3. 根据 Chrome 主进程命令行中的完整 --user-data-dir 重新识别环境，客户端重开后可以接管。
+4. 启动等待 spawn/error 并确认实际实例；关闭等待实际退出。操作串行化，失败不清空状态。
+5. 关闭前再次核对 PID、创建时间、可执行文件和命令行，拒绝进程身份变化。
+6. renderer 关闭 Node 权限，开启 contextIsolation 和 sandbox；preload 仅暴露固定业务接口。
+7. 添加 CSP、导航/新窗口/权限限制；校验 IPC 来源、参数、ID、路径与目录链接；移除未使用的任意记录替换接口。
+8. 升级 Electron 45.2.3、electron-updater 6.8.11、electron-builder 26.18.0、electron-log 5.4.4。
+9. js-yaml 锁定解析到 4.3.2；仅对受告警影响的 minimatch >=7 <11.0.1 覆盖到 11.0.5，不影响旧 API 的 minimatch 3/5 依赖。
+10. 下载好的更新不在退出时自动安装；仅明确点击更新且环境正常退出后才安装。
+
+测试（Node.js >=22.12，推荐 24，Windows）
+在本项目目录中执行：
+  npm ci
+  npm test
+  npm run test:electron
+  npm run test:ui-quality
+  npm run test:ui-quality -- --software
+  npm run test:chrome
+  npm run test:electron:real
+  npm audit
+  npm audit --omit=dev
+  npm run dist -- --publish never --config.directories.output=dist-local
+  npm run test:packaged
+
+如果首次 Electron 下载受当前网络代理影响，可仅在当前 PowerShell 终端设置：
+  $env:NODE_USE_ENV_PROXY='1'
+  node node_modules/electron/install.js
+无需更改系统级代理设置。
+
+测试边界
+- npm test：31 个单元/故障注入用例，全部使用新临时目录或纯函数，包括 Windows 实际文件共享锁重现及恢复。
+- test:electron：真实 Electron 主进程、preload 和界面；隐藏测试窗口。覆盖普通/损坏配置、创建/批量创建/改名/搜索、启动关闭、失败反馈、更新安装拦截、HTML 转义、页面隔离及权限限制；外部浏览器操作和更新器使用测试替身。
+- test:chrome：实际本机 Chrome，两个全新临时 profile，窗口放在屏幕之外。仅访问测试脚本开启的 127.0.0.1 页面。覆盖多开、客户端逻辑重建后接管、重复启动保护、PID 身份校验、WM_CLOSE 正常退出，以及重开后持久 Cookie、localStorage、IndexedDB 按环境隔离且保留。
+- Chrome 测试专用的远程调试参数仅在 test/chrome-integration.cjs 中添加；正式程序没有启用远程调试端口。
+- test:electron:real：新界面 → 正式 preload → 正式 IPC → AccountManager → 实际 Chrome。两个全新临时环境，验证按序启动、单个关闭不影响另一个进程、重开与全部关闭；仅打开 about:blank。
+- 所有测试均不使用真实 WhatsApp 账号。临时测试目录保留以便复核，测试 Chrome 会正常关闭。
+- Windows NSIS 安装包可以构建；本次没有在真实用户配置上安装、卸载或执行在线升级。
+- 没有配置代码签名证书，生成的安装包未签名。
+
+GitHub 发布
+本地构建使用 --publish never，不会上传 GitHub。
+明确发布时，标签工作流使用 npm ci、单元测试、Electron 测试，再构建上传草稿；核对资产后正式发布。
+正式发布后，verify-update 工作流在一次性 GitHub-hosted Windows 测试机验证真实安装升级，不在用户电脑上执行安装测试。
+安装包显式排除测试脚本、仓库 accounts.json 和构建目录。
+
+界面集成（2026-11-08，本地未推送）
+- 正式 UI 源码在 ui/；renderer.js 和 style.css 由 npm run build:ui 生成，不直接编辑生成文件。
+- start、pack、dist、test:electron 在运行前自动构建离线 UI；不需要 Vite 或网络服务。
+- 保留现有业务接口、安全隔离与数据路径；新增固定 close-profile IPC，复用原有身份验证 + WM_CLOSE 正常退出流程，只关闭指定 ID。
+- 浅色 / 深色 / 跟随系统、RGB / 预设主题色，仅保存到客户端 localStorage 的 yt-browser.appearance.v1，不修改 accounts.json、Chrome 配置或登录数据。
+- 用户红框中的说明文字、侧栏预览标识及左侧页脚整段均移除；同时移除模拟数据、重置演示和模拟业务逻辑。
+- npm run preview:local 打开实际客户端及真实业务接口，但每次启动使用全新临时 appData/userData，两条测试环境记录。窗口标题明确显示“本地测试（独立数据目录）”。
+- 不要用 npm start 代替隔离预览测试；npm start 会读取正式应用的默认 userData。
+- 本次新界面的运行、27 项单元测试、41 项 Electron 普通/损坏配置检查、7 项真实 Chrome UI 检查及双 Chrome 登录状态标记回归通过。
+- 打包问题已在后续本地修复：scripts/build-windows.cjs 为 addWinAsarIntegrity 中的 EXE open 失败添加有界重试；真实构建中 UNKNOWN 经一次 200 ms 重试恢复，随后重复构建也成功。没有绕过 ASAR 校验。
+- 新界面安装包位于 dist-local/YT多开浏览器 Setup 2.2.13.exe，未签名、未发布、未覆盖安装。旧 dist-fix 不包含新界面。
+- npm run test:packaged 提取安装包实际应用载荷，核对 EXE/ASAR、完整性哈希和生产源码，再直接启动打包后的 EXE；以全新 userData 检查真实多开、单独关闭、主题跨完整进程重启保留。不会执行 NSIS 安装，避免改动现有安装登记和快捷方式。

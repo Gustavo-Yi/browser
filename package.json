@@ -1,23 +1,58 @@
 {
   "name": "yutong-browser",
   "productName": "YT多开浏览器",
-  "version": "2.2.12",
+  "version": "2.2.13",
   "description": "Multi-instance browser with isolated profiles",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder -w"
+    "pack": "node scripts/build-windows.cjs --dir",
+    "dist": "node scripts/build-windows.cjs -w",
+    "test": "node --test test/*.test.js",
+    "test:electron": "node test/run-electron.cjs",
+    "test:chrome": "node test/chrome-integration.cjs",
+    "build:ui": "node scripts/build-ui.cjs",
+    "prestart": "npm run build:ui",
+    "prepack": "npm run build:ui",
+    "predist": "npm run build:ui",
+    "pretest:electron": "npm run build:ui",
+    "preview:local": "npm run build:ui && node test/run-local-preview.cjs",
+    "test:electron:real": "npm run build:ui && node test/run-electron.cjs --real",
+    "test:packaged": "node test/packaged-app.cjs",
+    "test:ui-quality": "npm run build:ui && node test/run-ui-quality.cjs after"
   },
   "dependencies": {
-    "electron-log": "^5.4.3",
-    "electron-updater": "^6.8.3"
+    "electron-log": "5.4.4",
+    "electron-updater": "6.8.11"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^24.13.3"
+    "@phosphor-icons/react": "2.1.10",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.25.12",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "overrides": {
+    "minimatch@>=7 <11.0.1": "11.0.5"
   },
   "build": {
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "style.css",
+      "lib/**",
+      "yutonglogo.png",
+      "yutonglogo.ico",
+      "icon.png",
+      "whatsapp.png",
+      "package.json"
+    ],
     "appId": "com.yutong.browser",
     "productName": "YT多开浏览器",
     "publish": [

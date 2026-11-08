@@ -13,18 +13,28 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 24
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Verify release tag matches package version
+        run: node -e "if(process.env.GITHUB_REF_NAME !== 'v'+require('./package.json').version)process.exit(1)"
+
+      - name: Regression tests
+        run: npm test
+
+      - name: Electron UI and isolation tests
+        run: npm run test:electron
 
       - name: Build and Publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          EP_DRAFT: 'true'
         run: npm run dist -- --publish always

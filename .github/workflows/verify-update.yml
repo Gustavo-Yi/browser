@@ -1,0 +1,40 @@
+name: Verify Published Windows Update
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published target version
+        required: true
+        default: '2.2.13'
+
+permissions:
+  contents: read
+
+jobs:
+  installed-upgrade:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      YT_TARGET_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      YT_ALLOW_DISPOSABLE_INSTALL: github-hosted-runner-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install 2.2.12 and update through its real UI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node test/published-update.cjs
+      - name: Preserve verification evidence (no browser profiles)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-update-verification
+          path: update-verification/
+          retention-days: 14

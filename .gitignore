@@ -1,6 +1,10 @@
 ﻿node_modules/
 dist/
+dist-fix/
+dist-ui-local/
+dist-local/
 profiles/
 design-mockups/
+update-verification/
 *.log
 .DS_Store
