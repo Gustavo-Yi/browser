@@ -105,7 +105,11 @@ async function click(selector) {
     await page.call('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...point}); await pause(100);
 }
 async function screenshot(name) {fs.writeFileSync(path.join(evidence,name+'.png'),Buffer.from((await page.call('Page.captureScreenshot')).data,'base64'));}
-function versionOnDisk() {try{return JSON.parse(asar.extractFile(path.join(installDir,'resources/app.asar'),'package.json')).version;}catch{return null;}}
+function versionOnDisk() {
+    // NSIS replaces this path in-place; do not reuse the old archive's cached header.
+    const archive = path.join(installDir,'resources/app.asar');
+    try {asar.uncache(archive);return JSON.parse(asar.extractFile(archive,'package.json')).version;}catch{return null;}
+}
 const ids = ['upgrade-10001','upgrade-20002'];
 function loginSnapshot() {
     const result = {};
@@ -178,7 +182,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const pendingDir = path.join(process.env.LOCALAPPDATA,config.updaterCacheDirName,'pending');
     const downloaded = fs.readdirSync(pendingDir).find(x=>x.endsWith('.exe'));assert(downloaded);
     check('installed old client detects and downloads exact published 2.2.13', hash(fs.readFileSync(path.join(pendingDir,downloaded)),'sha512','base64')===entry.sha512);
-    await click('#update-dock-action');
+    await click('#update-dock-action').catch(error => {if(error.message !== 'Debugger closed')throw error;});
     await until(() => child.exitCode !== null);
     await until(() => versionOnDisk()===target,180000);
     // The real updater invokes the real NSIS installer and restarts the new installed EXE.
