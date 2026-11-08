@@ -173,7 +173,8 @@ async function chromeStorage(write) {
 const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog.log'),logs.join(''));process.exit(2);},15*60*1000);
 (async () => {
     const published = await release('v'+target), previous = await release('v'+oldVersion);
-    check('target is a published stable release', !published.draft && !published.prerelease);
+    if(mode==='online') check('target is a published stable release', !published.draft && !published.prerelease);
+    else check('target draft/release is available for isolated install verification',published.tag_name==='v'+target);
     const latestAsset = published.assets.find(x => x.name === 'latest.yml'); assert(latestAsset);
     const manifest = yaml.load((await download(latestAsset,path.join(evidence,'latest.yml'),'v'+target)).toString());
     assert.equal(manifest.version,target);
@@ -206,7 +207,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     await screenshot('old-client-update-ready');
     const pendingDir = path.join(process.env.LOCALAPPDATA,config.updaterCacheDirName,'pending');
     const downloaded = fs.readdirSync(pendingDir).find(x=>x.endsWith('.exe'));assert(downloaded);
-    check('installed old client detects and downloads exact published 2.2.13', hash(fs.readFileSync(path.join(pendingDir,downloaded)),'sha512','base64')===entry.sha512);
+    check(`installed old client detects and downloads exact published ${target}`, hash(fs.readFileSync(path.join(pendingDir,downloaded)),'sha512','base64')===entry.sha512);
     await click('#update-dock-action').catch(error => {if(error.message !== 'Debugger closed')throw error;});
     await until(() => child.exitCode !== null);
     await until(() => versionOnDisk()===target,180000);
@@ -216,7 +217,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
         await stop();
         const upgrade = spawnSync(newSetup,['/S','/CURRENTUSER',`/D=${installDir}`],{env:cleanEnv(),windowsHide:true,timeout:120000});
         assert.equal(upgrade.status,0);assert.equal(versionOnDisk(),target);
-        check('manual NSIS over-install replaces 2.2.12 with 2.2.13',true);
+        check(`manual NSIS over-install replaces ${oldVersion} with ${target}`,true);
     }
     // The real updater invokes the real NSIS installer and restarts the new installed EXE.
     const env = {...process.env,YT_VERIFIED_EXE:exe};
@@ -225,7 +226,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
         const r=ps(`$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 }; if($p){'READY'}`);
         return r.stdout.includes('READY');
     },60000);
-    if(mode==='online') check('real updater runs NSIS and automatically restarts installed 2.2.13',true);
+    if(mode==='online') check(`real updater runs NSIS and automatically restarts installed ${target}`,true);
     assert(fs.readFileSync(accountsFile).equals(beforeAccounts));
     assert.deepEqual(loginSnapshot(),beforeLogin);
     check('installation retains account bytes and Chrome login stores',true);
@@ -238,7 +239,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const archive = path.join(installDir,'resources/app.asar');
     // Windows Git checkout can use CRLF while a local release build uses LF.
     const normalized = value => value.toString('utf8').replace(/\r\n/g,'\n');
-    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
+    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js','lib/security.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
     const state = await page.evaluate('electronAPI.getState()');
     assert.equal(state.ok,true,JSON.stringify(state));assert.deepEqual(state.accounts.map(x=>x.id),ids);
     check('new installed production code uses the original default data directory and IDs',true);

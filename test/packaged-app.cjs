@@ -14,7 +14,8 @@ const { AccountManager } = require('../lib/account-manager');
 const repo = path.join(__dirname, '..');
 const pkg = require('../package.json');
 const installer = path.resolve(process.argv[2] || path.join(repo, 'dist-local', `${pkg.productName} Setup ${pkg.version}.exe`));
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-packaged-test-'));
+// Exercise the same tilde encoding mismatch observed after a real NSIS install.
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-packaged~test-'));
 const application = path.join(root, 'application'), userData = path.join(root, 'userData');
 const accountsFile = path.join(userData, 'accounts.json');
 const profiles = path.join(userData, 'profiles');
