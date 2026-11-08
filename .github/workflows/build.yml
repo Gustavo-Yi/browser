@@ -53,6 +53,26 @@ jobs:
           Set-Content -LiteralPath 'node_modules/electron/dist/version' -Value $version -NoNewline -Encoding ascii
           Write-Output "Verified official Electron $version SHA256: $actual"
 
+      - name: Cache checksum-verified official NSIS tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cache = node -p "require('app-builder-lib/out/util/electronGet').getCacheDirectory({allowEnvVarOverride:true})"
+          $tools = @(
+            @{tag='nsis-3.0.4.1'; file='nsis-3.0.4.1.7z'; sha256='9877df902530f96357d13a7a31ae2b9df67f48b11ffc9a1700a7c961574ec5fa'},
+            @{tag='nsis-resources-3.4.1'; file='nsis-resources-3.4.1.7z'; sha256='593a9a92ef958321293ac6a2ee61e64bf1bd543142a5bd6b3d310709cc924103'}
+          )
+          foreach ($tool in $tools) {
+            $dest = Join-Path $cache $tool.tag
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            gh release download $tool.tag --repo electron-userland/electron-builder-binaries --pattern $tool.file --dir $dest
+            if ($LASTEXITCODE -ne 0) { throw "Download failed: $($tool.file)" }
+            $actual = (Get-FileHash -LiteralPath (Join-Path $dest $tool.file) -Algorithm SHA256).Hash
+            if ($actual -ne $tool.sha256) { throw "Tool checksum mismatch: $($tool.file)" }
+            Write-Output "Verified $($tool.file) SHA256: $actual"
+          }
+
       - name: Verify release tag matches package version
         env:
           YT_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
