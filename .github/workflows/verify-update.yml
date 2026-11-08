@@ -9,6 +9,13 @@ on:
         description: Published target version
         required: true
         default: '2.2.13'
+      mode:
+        description: Online updater or separate manual-install data-retention test
+        type: choice
+        options:
+          - online
+          - manual
+        default: online
 
 permissions:
   contents: read
@@ -19,6 +26,7 @@ jobs:
     timeout-minutes: 20
     env:
       YT_TARGET_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      YT_UPGRADE_MODE: ${{ inputs.mode || 'online' }}
       YT_ALLOW_DISPOSABLE_INSTALL: github-hosted-runner-only
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +37,7 @@ jobs:
       - run: npm ci
       - name: Regenerate UI for byte-for-byte package comparison
         run: npm run build:ui
-      - name: Install 2.2.12 and update through its real UI
+      - name: Verify installed upgrade (explicit online or manual mode)
         env:
           GH_TOKEN: ${{ github.token }}
         run: node test/published-update.cjs

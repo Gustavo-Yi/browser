@@ -19,6 +19,8 @@ const repo = 'Gustavo-Yi/browser', target = (process.env.YT_TARGET_VERSION || ''
 assert.match(target, /^\d+\.\d+\.\d+$/);
 assert.equal(target, require('../package.json').version);
 const oldVersion = '2.2.12';
+const mode = process.env.YT_UPGRADE_MODE || 'online';
+assert(['online','manual'].includes(mode));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-installed-upgrade-'));
 const evidence = path.resolve('update-verification'); fs.mkdirSync(evidence, {recursive:true});
 const installDir = path.join(root, 'installed-client');
@@ -173,7 +175,8 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     assert.equal(manifest.version,target);
     const entry = manifest.files.find(x => x.url.endsWith('.exe')); assert(entry);
     const installerAsset = published.assets.find(x => x.name === decodeURIComponent(entry.url)); assert(installerAsset, entry.url);
-    const installerBytes = await download(installerAsset,path.join(root,'new-setup.exe'),'v'+target);
+    const newSetup = path.join(root,'new-setup.exe');
+    const installerBytes = await download(installerAsset,newSetup,'v'+target);
     check('public update manifest size and SHA512 match downloadable installer', installerBytes.length===entry.size && hash(installerBytes,'sha512','base64')===entry.sha512);
     const oldAsset = previous.assets.find(x => x.name.endsWith('.exe')); assert(oldAsset);
     const oldSetup = path.join(root,'old-setup.exe'); await download(oldAsset,oldSetup,'v'+oldVersion);
@@ -192,6 +195,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const beforeAccounts = fs.readFileSync(accountsFile), beforeLogin = loginSnapshot();
     const config = yaml.load(fs.readFileSync(path.join(installDir,'resources/app-update.yml'),'utf8'));
     assert.equal(config.owner,'Gustavo-Yi');assert.equal(config.repo,'browser');
+    if(mode==='online') {
     await click('#nav-update-btn');
     const downloadState = await until(() => page.evaluate(`(()=>{const d=document.querySelector('#update-dock');return d&&(d.classList.contains('ready')||d.classList.contains('error'))&&{ready:d.classList.contains('ready'),text:d.innerText}})()`),300000);
     assert(downloadState.ready,downloadState.text);
@@ -202,19 +206,30 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     await click('#update-dock-action').catch(error => {if(error.message !== 'Debugger closed')throw error;});
     await until(() => child.exitCode !== null);
     await until(() => versionOnDisk()===target,180000);
+    } else {
+        // Separate coverage only, NEVER a fallback that turns a failed online
+        // update into a passing result. This mode must be explicitly selected.
+        await stop();
+        const upgrade = spawnSync(newSetup,['/S','/CURRENTUSER',`/D=${installDir}`],{env:cleanEnv(),windowsHide:true,timeout:120000});
+        assert.equal(upgrade.status,0);assert.equal(versionOnDisk(),target);
+        check('manual NSIS over-install replaces 2.2.12 with 2.2.13',true);
+    }
     // The real updater invokes the real NSIS installer and restarts the new installed EXE.
     const env = {...process.env,YT_VERIFIED_EXE:exe};
     const ps = code => spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',code],{env,windowsHide:true,encoding:'utf8',timeout:15000});
-    await until(() => {
+    if(mode==='online') await until(() => {
         const r=ps(`$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 }; if($p){'READY'}`);
         return r.stdout.includes('READY');
     },60000);
-    check('real updater runs NSIS and automatically restarts installed 2.2.13',true);
-    check('installation retains account bytes and Chrome login stores',fs.readFileSync(accountsFile).equals(beforeAccounts));
+    if(mode==='online') check('real updater runs NSIS and automatically restarts installed 2.2.13',true);
+    assert(fs.readFileSync(accountsFile).equals(beforeAccounts));
     assert.deepEqual(loginSnapshot(),beforeLogin);
+    check('installation retains account bytes and Chrome login stores',true);
     // Close only the restarted test EXE gracefully, then reconnect with test-only debugging flags.
-    ps(`Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }`);
-    await until(()=>!ps(`@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE }).Count`).stdout.trim().match(/^[1-9]/));
+    if(mode==='online') {
+        ps(`Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }`);
+        await until(()=>!ps(`@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE }).Count`).stdout.trim().match(/^[1-9]/));
+    }
     await start(target);
     const archive = path.join(installDir,'resources/app.asar');
     // Windows Git checkout can use CRLF while a local release build uses LF.
@@ -233,18 +248,21 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     await click('#close-all-btn');await click('[data-confirm]');
     await until(()=>page.evaluate('document.querySelectorAll(".account-row.running").length===0&&!document.querySelector("dialog")'));
     await chromeStorage(false);check('Cookie, localStorage and IndexedDB survive actual upgrade and reopen',true);
+    if(mode==='online') {
     await click('#nav-update-btn');await click('dialog .button.primary');
     await until(()=>page.evaluate('document.querySelector("dialog")?.textContent.includes("当前已是最新版本")'),60000);
     check('new client update check correctly reports latest version',true);
-    await screenshot('upgraded-latest');await stop();
+    await screenshot('upgraded-latest');
+    }
+    await stop();
     await start(target);
     check('appearance persists across installed-client restart',await page.evaluate('document.documentElement.dataset.theme==="dark"&&document.documentElement.style.getPropertyValue("--accent-fill")==="#8b5cf6"'));
     await stop();
-    fs.writeFileSync(path.join(evidence,'results.json'),JSON.stringify({passed:true,from:oldVersion,to:target,release:published.html_url,installerSha256:hash(installerBytes),checks,runner:process.env.RUNNER_ENVIRONMENT,realInstall:true,productionUserDataAccessed:false},null,2));
-    console.log('PUBLISHED UPDATE VERIFIED');
+    fs.writeFileSync(path.join(evidence,mode==='online'?'results.json':'manual-install-results.json'),JSON.stringify({passed:true,mode,onlineUpdateVerified:mode==='online',from:oldVersion,to:target,release:published.html_url,installerSha256:hash(installerBytes),checks,runner:process.env.RUNNER_ENVIRONMENT,realInstall:true,productionUserDataAccessed:false},null,2));
+    console.log(mode==='online'?'PUBLISHED ONLINE UPDATE VERIFIED':'MANUAL INSTALL VERIFIED; ONLINE UPDATE NOT VERIFIED');
 })().catch(async error => {
     console.error(error.stack);process.exitCode=1;
-    fs.writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({error:error.stack,checks,root,userData},null,2));
+    fs.writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({mode,error:error.stack,checks,root,userData},null,2));
     try {await screenshot('failure');}catch{}
 }).finally(async()=>{
     // A failed UI assertion must not leave the disposable client holding the
