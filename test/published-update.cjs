@@ -102,6 +102,10 @@ async function start(version) {
     const tab = await until(async () => (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(x => x.type === 'page' && x.url.endsWith('/index.html')));
     page = await cdp(tab.webSocketDebuggerUrl.replace('localhost','127.0.0.1'));
     await until(() => page.evaluate('!!document.querySelector("#nav-update-btn")'));
+    const diagnostic = await cdp(inspect);
+    const runtime = await diagnostic.evaluate(`(()=>{const e=process.mainModule.require('electron'),p=process.mainModule.require('node:path'),u=process.mainModule.require('node:url'),w=e.BrowserWindow.getAllWindows()[0];return {mainFile:process.mainModule.filename,appPath:e.app.getAppPath(),entryURL:u.pathToFileURL(p.join(p.dirname(process.mainModule.filename),'index.html')).href,windowURL:w.webContents.getURL(),frameURL:w.webContents.mainFrame.url}})()`);
+    diagnostic.socket.close();
+    fs.writeFileSync(path.join(evidence,'runtime-'+version+'.json'),JSON.stringify(runtime,null,2));
     return paths;
 }
 async function stop() {
@@ -235,7 +239,8 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     // Windows Git checkout can use CRLF while a local release build uses LF.
     const normalized = value => value.toString('utf8').replace(/\r\n/g,'\n');
     for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
-    const state = await page.evaluate('electronAPI.getState()');assert.deepEqual(state.accounts.map(x=>x.id),ids);
+    const state = await page.evaluate('electronAPI.getState()');
+    assert.equal(state.ok,true,JSON.stringify(state));assert.deepEqual(state.accounts.map(x=>x.id),ids);
     check('new installed production code uses the original default data directory and IDs',true);
     await click('[data-open-appearance]');await click('dialog [data-mode="dark"]');await click('[data-preset="#8b5cf6"]');
     await screenshot('upgraded-appearance');await click('[aria-label="关闭弹窗"]');await pause(250);
