@@ -27,7 +27,10 @@ const checks = [], sockets = [], logs = [];
 let child, browser, page, userData, server;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const hash = (data, alg = 'sha256', encoding = 'hex') => crypto.createHash(alg).update(data).digest(encoding);
-function check(label, condition) { assert(condition, label); checks.push(label); console.log('PASS ' + label); }
+function check(label, condition) {
+    assert(condition, label); checks.push(label); console.log(new Date().toISOString() + ' PASS ' + label);
+    fs.writeFileSync(path.join(evidence,'progress.json'),JSON.stringify({checks,updatedAt:new Date().toISOString()},null,2));
+}
 async function until(fn, timeout = 60000) {
     const end = Date.now() + timeout; let last;
     while (Date.now() < end) {
@@ -243,8 +246,15 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     console.error(error.stack);process.exitCode=1;
     fs.writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({error:error.stack,checks,root,userData},null,2));
     try {await screenshot('failure');}catch{}
-}).finally(()=>{
+}).finally(async()=>{
+    // A failed UI assertion must not leave the disposable client holding the
+    // test process open through its stdout/stderr pipes and hide failure logs.
+    if(browser && child?.exitCode===null) await browser.call('Browser.close').catch(()=>{});
     clearTimeout(watchdog);fs.writeFileSync(path.join(evidence,'process.log'),logs.join(''));
     if(userData && fs.existsSync(path.join(userData,'logs','main.log')))fs.copyFileSync(path.join(userData,'logs','main.log'),path.join(evidence,'updater.log'));
-    for(const socket of sockets)socket.close();if(server)server.close();
+    for(const socket of sockets)socket.close();
+    if(server){server.closeAllConnections();server.close();}
+    // No force-kill: the entire runner is disposable, and only its test child
+    // handles are detached after requesting a normal application close.
+    child?.stdout?.destroy();child?.stderr?.destroy();child?.unref();
 });
