@@ -27,6 +27,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Regenerate UI for byte-for-byte package comparison
+        run: npm run build:ui
       - name: Install 2.2.12 and update through its real UI
         env:
           GH_TOKEN: ${{ github.token }}
