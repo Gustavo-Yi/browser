@@ -51,10 +51,20 @@ async function download(asset, file, tag) {
     return fs.readFileSync(file);
 }
 async function release(tag) {
-    const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`, {
+    const options = {
         headers:{Accept:'application/vnd.github+json', Authorization:'Bearer ' + process.env.GH_TOKEN},
         signal:AbortSignal.timeout(30000)
-    });
+    };
+    const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`, options);
+    if (response.status === 404 && mode === 'manual') {
+        // The by-tag endpoint exposes published releases, while an authenticated
+        // list can expose a draft before publication. This is NOT an online fallback.
+        const listed = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=100`, options);
+        assert.equal(listed.status, 200);
+        const matches = (await listed.json()).filter(item => item.tag_name === tag);
+        assert.equal(matches.length, 1, 'Expected exactly one accessible draft/release for ' + tag);
+        return matches[0];
+    }
     assert.equal(response.status, 200); return response.json();
 }
 async function cdp(url) {
