@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { BrowserGuard } = require('../lib/browser-guard');
 const { AccountManager, findChromePath } = require('../lib/account-manager');
 const windows = require('../lib/windows-processes');
 
@@ -79,14 +79,14 @@ async function page(id, origin) {
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const origin = 'http://127.0.0.1:' + server.address().port;
+    const guard = new BrowserGuard();
+    const guardedSpawn = guard.spawn.bind(guard);
+    guard.spawn = (exe, args) => guardedSpawn(exe, [...args.filter(arg => arg !== '--start-maximized'),
+        '--window-position=-32000,-32000', '--window-size=800,600', '--start-minimized',
+        '--disable-gpu', '--disable-background-networking', '--disable-component-update',
+        '--disable-sync', '--remote-debugging-port=0', origin]);
     const makeManager = () => new AccountManager({
-        userData: root, findChrome: () => chrome, launchTimeout: 20000, closeTimeout: 10000,
-        spawnProcess(exe, args, options) {
-            return spawn(exe, [...args.filter(arg => arg !== '--start-maximized'),
-                '--window-position=-32000,-32000', '--window-size=800,600', '--start-minimized',
-                '--disable-gpu', '--disable-background-networking', '--disable-component-update',
-                '--disable-sync', '--remote-debugging-port=0', origin], options);
-        }
+        userData: root, findChrome: () => chrome, launchTimeout: 20000, closeTimeout: 10000, guard
     });
     let manager = makeManager();
     for (const account of accounts) assert.equal((await manager.launchProfile(account.id)).ok, true);
@@ -124,8 +124,9 @@ async function page(id, origin) {
         assert.equal(indexed, account.id);
     }
     const final = await manager.closeAllProfiles(); assert.equal(final.closed, 2); assert.equal(final.failed, 0);
+    await manager.waitForBrowserExit();
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'accounts.json'))).map(x => x.id), ['10001', '20002']);
-    const result = { passed: true, root, chrome, profiles: 2, singleCloseIsolation: true, gracefulClose: true, restartReattach: true, pidIdentityGuard: true, persistentCookie: true, localStorage: true, indexedDB: true };
+    const result = { passed: true, root, chrome, profiles: 2, nativeJobGuard: true, singleCloseIsolation: true, gracefulClose: true, restartReattach: true, pidIdentityGuard: true, persistentCookie: true, localStorage: true, indexedDB: true };
     fs.writeFileSync(path.join(root, 'results.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
 })().catch(error => {

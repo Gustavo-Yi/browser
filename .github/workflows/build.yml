@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Existing release tag to build (never moves the tag)
         required: true
-        default: v2.2.14
+        default: v2.2.15
 
 jobs:
   release:
@@ -84,8 +84,20 @@ jobs:
       - name: Electron UI and isolation tests
         run: npm run test:electron
 
+      - name: Tray and lifecycle entrypoint tests
+        run: npm run test:lifecycle
+
+      - name: Real Chrome process ownership and crash cleanup
+        run: npm run test:guard
+
       - name: Build and Publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
           EP_DRAFT: 'true'
         run: npm run dist -- --publish always
+
+      - name: Verify the exact draft installer payload
+        run: |
+          $product = node -p "require('./package.json').productName"
+          $version = node -p "require('./package.json').version"
+          npm run test:packaged -- "dist/$product Setup $version.exe"

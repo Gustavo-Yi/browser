@@ -118,6 +118,59 @@ test('concurrent launch requests are serialized and only one process is started'
     assert.equal(results.filter(result => result.ok).length, 1);
     assert.equal(f.launchCount, 1);
 });
+
+test('exit gate rejects pending launches and stops the rest of an arbitrary-size batch', async () => {
+    const f = setup(); const manager = f.make();
+    manager.addAccounts({ prefix: '环境', count: 6 });
+    manager.on('launch-progress', () => manager.beginShutdown());
+    const batch = await manager.launchAllProfilesInOrder();
+    assert.equal(batch.launched, 1); assert.equal(batch.canceled, 6);
+    await assert.rejects(manager.launchProfile(manager.accounts[1].id), /正在退出/);
+    assert.equal(f.launchCount, 1);
+    assert.equal((await manager.closeAllProfiles()).closed, 1);
+    manager.cancelShutdown();
+    assert.equal((await manager.launchProfile(manager.accounts[1].id)).ok, true);
+    await manager.closeAllProfiles();
+});
+
+test('queued launch is rejected when shutdown starts before its queue turn', async () => {
+    const f = setup(); const manager = f.make();
+    const queued = manager.launchProfile('10001'); manager.beginShutdown();
+    await assert.rejects(queued, /正在退出/); assert.equal(f.launchCount, 0);
+});
+
+test('shutdown includes unlisted environments under the owned root, never outside Chrome', async () => {
+    const f = setup(); const manager = f.make();
+    f.records.push({ pid: 1, profile: path.join(f.root, 'profiles', 'legacy-unlisted') },
+        { pid: 2, profile: path.join(f.root, 'ordinary', 'not-owned') });
+    await manager.refresh(); assert.equal(manager.getRunningCount(), 1);
+    assert.equal((await manager.closeAllProfiles()).closed, 1);
+    assert.equal(f.records.length, 1); assert.equal(f.records[0].pid, 2);
+});
+
+test('a process exiting between inventory and guard adoption is reconciled, not an error', async () => {
+    const f = setup(); const manager = f.make(); await manager.launchProfile('10001');
+    manager.guard = { async adopt() { f.records.length = 0; throw Error('process already gone'); } };
+    await manager.refresh(); assert.equal(manager.getRunningCount(), 0); assert.equal(manager.processError, null);
+});
+
+test('guard adoption failure for a STILL live identity is never silently ignored', async () => {
+    const f = setup(); const manager = f.make(); await manager.launchProfile('10001');
+    manager.guard = { async adopt() { throw Error('access denied'); } };
+    await assert.rejects(manager.refresh(), /核对/); assert.equal(manager.getState().statusKnown, false);
+});
+
+for (const count of [0, 1, 4, 7, 25]) {
+    test(`manager closes every one of ${count} environments, not a hard-coded subset`, async () => {
+        const f = setup();
+        fs.writeFileSync(f.file, JSON.stringify(Array.from({ length: count }, (_, i) => ({ id: 'env-' + i, name: 'Test ' + i }))));
+        const manager = f.make();
+        for (const account of manager.accounts) await manager.launchProfile(account.id);
+        assert.equal(manager.getRunningCount(), count);
+        assert.equal((await manager.closeAllProfiles()).closed, count);
+        assert.equal(f.records.length, 0); assert.equal(f.closeCount, count);
+    });
+}
 test('bulk create, rename and input validation retain current environment', () => {
     const f = setup(); const manager = f.make();
     assert.equal(manager.addAccounts({ prefix: '测试', count: 3 }).created, 3);

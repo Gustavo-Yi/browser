@@ -1,23 +1,27 @@
 {
   "name": "yutong-browser",
   "productName": "YT多开浏览器",
-  "version": "2.2.14",
+  "version": "2.2.15",
   "description": "Multi-instance browser with isolated profiles",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build:native": "node scripts/build-native.cjs",
+    "test:guard": "npm run build:native && node test/guard-integration.cjs",
+    "test:lifecycle": "npm run build:ui && node test/run-lifecycle-electron.cjs",
     "pack": "node scripts/build-windows.cjs --dir",
     "dist": "node scripts/build-windows.cjs -w",
     "test": "node --test test/*.test.js",
     "test:electron": "node test/run-electron.cjs",
     "test:chrome": "node test/chrome-integration.cjs",
+    "pretest:chrome": "npm run build:native",
     "build:ui": "node scripts/build-ui.cjs",
-    "prestart": "npm run build:ui",
+    "prestart": "npm run build:ui && npm run build:native",
     "prepack": "npm run build:ui",
     "predist": "npm run build:ui",
-    "pretest:electron": "npm run build:ui",
-    "preview:local": "npm run build:ui && node test/run-local-preview.cjs",
-    "test:electron:real": "npm run build:ui && node test/run-electron.cjs --real",
+    "pretest:electron": "npm run build:ui && npm run build:native",
+    "preview:local": "npm run build:ui && npm run build:native && node test/run-local-preview.cjs",
+    "test:electron:real": "npm run build:ui && npm run build:native && node test/run-electron.cjs --real",
     "test:packaged": "node test/packaged-app.cjs",
     "test:ui-quality": "npm run build:ui && node test/run-ui-quality.cjs after"
   },
@@ -40,6 +44,12 @@
     "minimatch@>=7 <11.0.1": "11.0.5"
   },
   "build": {
+    "extraResources": [
+      {
+        "from": "native/bin/YTBrowserGuard.exe",
+        "to": "native/YTBrowserGuard.exe"
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",

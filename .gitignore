@@ -8,3 +8,5 @@ design-mockups/
 update-verification/
 *.log
 .DS_Store
+native/bin/
+dist-lifecycle/

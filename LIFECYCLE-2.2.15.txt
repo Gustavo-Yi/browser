@@ -1,0 +1,60 @@
+YT 多开浏览器 2.2.15 — 客户端与浏览器生命周期修复
+日期：2026-11-11
+
+一、行为约定
+1. 针对 YT 管理的全部浏览器环境，不写死 4 个，也不增加环境数量上限。
+2. 右上角 ×：最小化到托盘 / 关闭浏览器并退出 / 取消。
+3. 最小化到托盘仍是客户端运行状态，浏览器继续运行；双击图标或再次打开客户端恢复现有窗口。
+4. 真正退出：同步禁止新的启动请求，取消批量启动的后续项目，等待已开始的操作，正常关闭全部环境和子进程后才退出。
+5. 关闭失败：客户端保持运行，提供重试、明确确认后强制关闭、取消退出。普通 Chrome 不在处理范围。
+6. 更新重启复用退出门禁；关闭失败不安装更新。系统会话结束单独处理，不依赖 before-quit。
+7. 客户端启动不会自动启动浏览器；手动启动环境仍保留 --restore-last-session，用于恢复该环境标签页。
+8. 不改账号 ID、userData、profile 路径，不直接改 Chrome Preferences/Cookies/Local Storage/IndexedDB，不新增开机启动项，不修改 Windows 全局恢复应用设置。
+
+二、实现
+main.js：托盘、关闭选择、窗口恢复、before-quit 和 query-session-end 的统一入口。
+lib/client-lifecycle.js：退出状态机，防重入，失败不假装成功退出。
+lib/account-manager.js：启动门禁、批量取消、动态进程集合、保护接管和最终退出核验；包含未列入 accounts.json 但位于本应用 profiles 根目录内的环境。
+lib/browser-guard.js + native/BrowserGuard.cs：每个浏览器由 Windows Job Object 保护，挂起创建、分配 Job 后再运行；客户端进程终止/管道断开时回收对应进程树。
+旧版残留实例接管核对 PID、创建时间、可执行文件、命令行；已存在的沙箱子进程分别用兼容的嵌套 Job 保护。接管中实例自行退出会重新核对，不误报为仍在运行。
+scripts/build-native.cjs：使用 Windows 自带 .NET Framework 编译器构建辅助程序；校验源和二进制哈希后复用同一构建；先生成临时文件再替换，避免截断已有 EXE。
+辅助程序作为 extraResources 放在 resources/native 中，不需要在用户电脑上运行编译器。
+
+三、复验命令（均在独立临时环境，不使用用户现有登录资料）
+Set-Location -LiteralPath 'D:\develop\browser'
+npm test
+npm run test:electron
+npm run test:lifecycle
+npm run test:guard
+npm run test:chrome
+npm run test:electron:real
+npm run dist -- --publish never --config.directories.output=dist-lifecycle
+npm run test:packaged -- "D:\develop\browser\dist-lifecycle\YT多开浏览器 Setup 2.2.15.exe"
+
+覆盖：0/1/4/7/25 个环境、启动中退出、重复退出、取消、超时/未知状态、窗口/托盘/应用退出/会话结束入口；真实 Chrome 正常退出、强制退出、管理进程异常终止、旧实例接管、PID 身份不匹配；独立 Chrome 不受影响；Cookie/Local Storage/IndexedDB 持久化；实际安装包载荷及 native helper 一致性。
+测试边界：数量矩阵为逻辑测试；真实进程测试为 3 个环境及其子进程；真实 Electron 界面/安装包测试使用 2 个环境。托盘测试使用真实托盘对象，但关闭选项和部分窗口可见性采用测试替身。
+本轮结果：61 项单元测试、41 项普通/损坏配置 Electron 检查、4 条生命周期入口、真实 Chrome 原生 Job 测试（每轮 3 个环境 / 33 个 profile 相关进程）、7 项真实 Chrome UI 检查、Cookie/Local Storage/IndexedDB 保留检查、15 项安装包检查均通过。
+汇总证据：D:\develop\browser\dist-lifecycle\verification.json
+安装包 SHA256：5b06b8f5ebc72340cc16b4485a716b5dbf93696b4433992454dc3ddb950eee35
+
+四、还需实际重启验收
+原代码可确认存在 detached 启动和“只退出客户端、保留 Chrome”选项，没有托盘和系统会话结束清理。仅凭源码不能还原此前那次重启的精确触发链。
+本次增加了生命周期约束、禁用本应用启动的 Chrome 后台模式，以及系统会话结束时的清理门禁；没有通过 --browser-test、全局注册表开关或进程注入绕过 Chrome 行为。
+尚未重启用户电脑，不能把模拟 query-session-end 当成实际重启通过；Windows/Chrome 自动恢复场景仍需验证。
+Chrome 源码确有 Windows Restart Manager 注册逻辑；本次没有声称已删除或禁用该注册，因此不能单凭 Job 测试宣称重启问题已经完全解决。
+
+实际验收步骤（用户方便时执行）：
+1. 正常关闭旧版客户端及其全部环境，安装本地 2.2.15（本次未自动覆盖安装）。
+2. 打开若干环境，分别验证最小化到托盘、恢复窗口、退出后全部环境结束；同时开一个普通 Chrome 验证不受影响。
+3. 再启动若干环境，保持客户端运行并由用户发起 Windows 重启；若 Windows 显示正在等待程序关闭，确认环境已退出后继续。
+4. 登录桌面后不打开 YT，检查这些多开环境是否自行恢复；再打开 YT，确认不会自动启动环境。
+5. 若仍恢复，记录 Windows 关机/重启方式、恢复时是否曾强制结束、YT 日志及恢复进程的 profile 参数，再定位重启注册路径；不要更改全局 Chrome 或 Windows 设置。
+
+参考（用于实现边界核对，不作为本机重启通过的证据）：
+https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+https://www.electronjs.org/docs/latest/api/app
+https://www.electronjs.org/docs/latest/api/browser-window
+https://chromium.googlesource.com/chromium/src/+/main/chrome/browser/chrome_browser_main_win.cc
+
+本地修复验证阶段未覆盖用户现有安装、未重启电脑。后续发布状态以 GitHub v2.2.15 Release 和对应 Actions 结果为准；本地安装包哈希不代表云端重建产物哈希。
+发布流程新增托盘/生命周期和真实 Chrome 进程保护回归；升级验收从已发布的 2.2.14 开始，覆盖手动安装和在线更新两个独立模式，均只在一次性 GitHub-hosted Windows runner 内运行。

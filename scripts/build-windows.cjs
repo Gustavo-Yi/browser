@@ -5,6 +5,7 @@ const path = require('node:path');
 const { retryExecutableOpen } = require('./executable-write-retry.cjs');
 const root = path.join(__dirname, '..');
 process.chdir(root);
+require('./build-native.cjs').buildNative();
 
 const pkg = require('../package.json');
 const builderVersion = require('app-builder-lib/package.json').version;

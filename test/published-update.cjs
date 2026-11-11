@@ -18,7 +18,7 @@ const {listProcesses} = require('../lib/windows-processes');
 const repo = 'Gustavo-Yi/browser', target = (process.env.YT_TARGET_VERSION || '').replace(/^v/,'');
 assert.match(target, /^\d+\.\d+\.\d+$/);
 assert.equal(target, require('../package.json').version);
-const oldVersion = '2.2.12';
+const oldVersion = '2.2.14';
 const mode = process.env.YT_UPGRADE_MODE || 'online';
 assert(['online','manual'].includes(mode));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-installed-upgrade-'));
@@ -189,7 +189,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const installed = spawnSync(oldSetup, ['/S','/CURRENTUSER',`/D=${installDir}`], {env:cleanEnv(),windowsHide:true,timeout:120000});
     assert.equal(installed.status,0);assert.equal(versionOnDisk(),oldVersion);
     await start(oldVersion); await stop();
-    check('actual 2.2.12 NSIS installation starts', true);
+    check(`actual ${oldVersion} NSIS installation starts`, true);
     const accountsFile = path.join(userData,'accounts.json');
     fs.writeFileSync(accountsFile,JSON.stringify(ids.map((id,i)=>({id,name:`升级保留测试 ${i+1}`,lastUsed:''})),null,2));
     server = http.createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Isolated upgrade fixture</title>Local test only');});
@@ -202,13 +202,15 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     assert.equal(config.owner,'Gustavo-Yi');assert.equal(config.repo,'browser');
     if(mode==='online') {
     await click('#nav-update-btn');
-    const downloadState = await until(() => page.evaluate(`(()=>{const d=document.querySelector('#update-dock');return d&&(d.classList.contains('ready')||d.classList.contains('error'))&&{ready:d.classList.contains('ready'),text:d.innerText}})()`),300000);
+    await page.evaluate('window.__ytUpdateStatus=null;window.electronAPI.onUpdate(status=>{window.__ytUpdateStatus=status;})');
+    await click('dialog .button.primary');
+    const downloadState = await until(() => page.evaluate(`(()=>{const s=window.__ytUpdateStatus;return s&&['ready','error'].includes(s.type)&&{ready:s.type==='ready',text:s.message||s.type}})()`),300000);
     assert(downloadState.ready,downloadState.text);
     await screenshot('old-client-update-ready');
     const pendingDir = path.join(process.env.LOCALAPPDATA,config.updaterCacheDirName,'pending');
     const downloaded = fs.readdirSync(pendingDir).find(x=>x.endsWith('.exe'));assert(downloaded);
     check(`installed old client detects and downloads exact published ${target}`, hash(fs.readFileSync(path.join(pendingDir,downloaded)),'sha512','base64')===entry.sha512);
-    await click('#update-dock-action').catch(error => {if(error.message !== 'Debugger closed')throw error;});
+    await click('dialog .button.primary').catch(error => {if(error.message !== 'Debugger closed')throw error;});
     await until(() => child.exitCode !== null);
     await until(() => versionOnDisk()===target,180000);
     } else {
@@ -233,20 +235,37 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     // Close only the restarted test EXE gracefully, then reconnect with test-only debugging flags.
     if(mode==='online') {
         ps(`Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }`);
+        // New production behavior always asks exit vs tray. Invoke the real native
+        // confirmation on ONLY the disposable installed app; never bypass the gate.
+        await until(() => ps(`
+            Add-Type -AssemblyName UIAutomationClient;
+            Add-Type -AssemblyName UIAutomationTypes;
+            $processes=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE });
+            foreach($p in $processes) {
+                $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$p.Id);
+                $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,$condition);
+                foreach($window in $windows) {
+                    $buttonCondition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'关闭浏览器并退出');
+                    $button=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$buttonCondition);
+                    if($button) { $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); 'INVOKED'; exit 0 }
+                }
+            }
+        `).stdout.includes('INVOKED'));
         await until(()=>!ps(`@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE }).Count`).stdout.trim().match(/^[1-9]/));
     }
     await start(target);
     const archive = path.join(installDir,'resources/app.asar');
     // Windows Git checkout can use CRLF while a local release build uses LF.
     const normalized = value => value.toString('utf8').replace(/\r\n/g,'\n');
-    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js','lib/security.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
+    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js','lib/security.js','lib/windows-processes.js','lib/browser-guard.js','lib/client-lifecycle.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
+    check('installed native browser guard exists outside ASAR', fs.existsSync(path.join(installDir,'resources/native/YTBrowserGuard.exe')));
     const state = await page.evaluate('electronAPI.getState()');
     assert.equal(state.ok,true,JSON.stringify(state));assert.deepEqual(state.accounts.map(x=>x.id),ids);
     check('new installed production code uses the original default data directory and IDs',true);
     await click('[data-open-appearance]');await click('dialog [data-mode="dark"]');await click('[data-preset="#8b5cf6"]');
     await screenshot('upgraded-appearance');await click('[aria-label="关闭弹窗"]');await pause(250);
     await click('#launch-all-btn');
-    await until(()=>page.evaluate('document.querySelectorAll(".account-row.running").length===2&&!document.querySelector("#launch-all-btn").disabled'));
+    await until(()=>page.evaluate('document.querySelectorAll(".account-row.running").length===2&&!document.querySelector("#close-all-btn").disabled'));
     check('upgraded client launches two distinct real Chrome profiles',(await listProcesses(path.join(userData,'profiles'))).length===2);
     await click('[data-account="upgrade-10001"] [data-action="toggle"]');
     await until(()=>page.evaluate('document.querySelectorAll(".account-row.running").length===1&&!document.querySelector("#close-all-btn").disabled'));

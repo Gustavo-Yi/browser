@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const fs = require('node:fs');
@@ -9,23 +9,33 @@ const { AccountManager } = require('./lib/account-manager');
 const { validateId, migrateLegacyData } = require('./lib/storage');
 const { listProcesses } = require('./lib/windows-processes');
 const { trustedSender, protectWindow } = require('./lib/security');
+const { ClientLifecycle } = require('./lib/client-lifecycle');
 
 autoUpdater.logger = log;
 log.transports.file.level = 'info';
 let mainWindow = null;
 let focusTimer;
+let tray = null;
+let lifecycle = null;
+let hiddenToTray = false;
 const singleInstance = app.requestSingleInstanceLock();
 function safeSend(win, channel, value) {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, value);
 }
 function holdInFront() {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow || mainWindow.isDestroyed() || hiddenToTray || lifecycle?.exiting) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show(); mainWindow.setAlwaysOnTop(true); mainWindow.focus();
     clearTimeout(focusTimer);
     focusTimer = setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setAlwaysOnTop(false);
     }, 2200);
+}
+function showMainWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    hiddenToTray = false;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show(); mainWindow.focus();
 }
 
 async function createWindow() {
@@ -97,9 +107,48 @@ async function createWindow() {
     });
     handle('open-chrome-download', () => shell.openExternal('https://www.google.com/chrome/'));
 
-    let allowClose = false;
-    let closePrompt = false;
     let updating = false;
+    lifecycle = new ClientLifecycle({
+        manager,
+        chooseClose: async () => {
+            const { response } = await dialog.showMessageBox(win, {
+                type: 'question', title: '关闭 YT 多开客户端', message: '请选择关闭方式',
+                detail: '最小化到托盘：客户端继续运行，全部多开浏览器保持打开。\n退出客户端：先关闭全部多开浏览器，再退出客户端。',
+                buttons: ['最小化到托盘', '关闭浏览器并退出', '取消'], defaultId: 0, cancelId: 2, noLink: true
+            });
+            return response;
+        },
+        chooseFailure: async error => {
+            showMainWindow();
+            const { response } = await dialog.showMessageBox(win, {
+                type: 'warning', title: '浏览器尚未退出', message: error.message,
+                detail: '客户端会继续运行，不会留下无人管理的浏览器。\n请先处理浏览器中的提示。强制关闭可能丢失尚未保存的网页内容，仅影响 YT 管理的浏览器。',
+                buttons: ['重试正常关闭', '强制关闭并退出', '取消退出'], defaultId: 0, cancelId: 2, noLink: true
+            });
+            return response;
+        },
+        reportError: async error => {
+            log.warn('Close failed', error); showMainWindow();
+            if (!win.isDestroyed()) await dialog.showMessageBox(win, { type: 'warning', title: '未退出客户端', message: error.message });
+        },
+        hide: () => {
+            // Never hide the only usable window if tray creation failed.
+            if (!tray || tray.isDestroyed()) throw Error('托盘图标不可用，未隐藏客户端，请重试或选择退出。');
+            hiddenToTray = true; clearTimeout(focusTimer); win.setAlwaysOnTop(false); win.hide();
+        },
+        quit: () => app.quit()
+    });
+    tray = new Tray(path.join(__dirname, 'yutonglogo.ico'));
+    tray.setToolTip('YT 多开客户端');
+    tray.setContextMenu(Menu.buildFromTemplate([
+        { label: '打开主界面', click: showMainWindow },
+        { type: 'separator' },
+        { label: '退出客户端（关闭全部多开浏览器）', click: () => { showMainWindow(); void lifecycle.exit(); } }
+    ]));
+    tray.on('double-click', showMainWindow);
+    manager.on('state', () => {
+        if (tray && !tray.isDestroyed()) tray.setToolTip('YT 多开客户端 · ' + (manager.shuttingDown ? '正在退出' : manager.getRunningCount() + ' 个环境运行中'));
+    });
     let updateState = 'idle';
     const notifyUpdate = (type, data = {}) => safeSend(win, 'update-status', { type, ...data });
     autoUpdater.autoDownload = false;
@@ -133,50 +182,28 @@ async function createWindow() {
         if (manager.busy) throw new Error('请等待当前浏览器操作完成后再更新。');
         updating = true;
         try {
-            const result = await manager.closeAllProfiles();
-            if (result.failed) throw new Error('仍有浏览器未正常退出，请手动关闭后重试；本次未安装更新。');
-            allowClose = true; autoUpdater.quitAndInstall(true, true);
+            await lifecycle.exit({ interactive: false, finish: () => autoUpdater.quitAndInstall(true, true) });
         } finally { updating = false; }
     });
-    win.on('close', async event => {
-        if (allowClose) return;
+    win.on('close', event => {
+        if (lifecycle.allowQuit) return;
         event.preventDefault();
-        if (closePrompt) return;
-        closePrompt = true;
-        try {
-            if (manager.busy || updating) {
-                await dialog.showMessageBox(win, { type: 'info', message: '请等待当前启动、关闭或更新操作完成后再退出。' });
-                return;
-            }
-            await manager.refresh().catch(() => {});
-            if (manager.getRunningCount() || manager.processError) {
-                const { response } = await dialog.showMessageBox(win, {
-                    type: 'question', title: '关闭客户端',
-                    message: manager.processError ? '暂时无法确认浏览器状态' : '当前有 ' + manager.getRunningCount() + ' 个浏览器环境正在运行',
-                    detail: '只关闭客户端会保留 Chrome；下次打开客户端会重新识别。浏览器无法正常关闭时不会强制结束。',
-                    buttons: ['只关闭客户端', '同时关闭浏览器', '取消'], defaultId: 0, cancelId: 2, noLink: true
-                });
-                if (response === 2) return;
-                if (response === 1) {
-                    const result = await manager.closeAllProfiles();
-                    if (result.failed) {
-                        await dialog.showMessageBox(win, { type: 'warning', message: '有 ' + result.failed + ' 个环境尚未退出，请检查浏览器提示或手动关闭。' });
-                        return;
-                    }
-                }
-            }
-            allowClose = true; win.close();
-        } catch (error) {
-            log.warn('Close failed', error);
-            await dialog.showMessageBox(win, { type: 'warning', message: error.message });
-        } finally { closePrompt = false; }
+        if (!updating) void lifecycle.closeWindow();
     });
+    win.on('query-session-end', event => {
+        if (lifecycle.allowQuit) return;
+        // Windows shutdown doesn't emit before-quit. Delay while Chrome saves its data.
+        event.preventDefault();
+        void lifecycle.exit({ interactive: false }).catch(error => lifecycle.reportError(error));
+    });
+    win.on('session-end', () => manager.beginShutdown());
     const timer = setInterval(() => { if (!manager.busy) void manager.refresh().catch(() => {}); }, 5000);
     timer.unref();
     win.on('closed', () => {
         clearInterval(timer); clearTimeout(focusTimer); manager.removeAllListeners();
         for (const channel of registered) ipcMain.removeHandler(channel);
         for (const [event, callback] of updaterEvents) autoUpdater.removeListener(event, callback);
+        if (tray) { tray.destroy(); tray = null; }
         mainWindow = null;
     });
     await win.loadFile(entry);
@@ -185,12 +212,15 @@ async function createWindow() {
 if (!singleInstance) app.quit();
 else {
     app.on('second-instance', () => {
-        if (!mainWindow) return;
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show(); mainWindow.focus();
+        showMainWindow();
     });
     app.whenReady().then(createWindow).catch(error => {
         log.error('Startup failed', error); dialog.showErrorBox('启动失败', error.message); app.quit();
     });
 }
+app.on('before-quit', event => {
+    if (!lifecycle || lifecycle.allowQuit) return;
+    event.preventDefault();
+    void lifecycle.exit();
+});
 app.on('window-all-closed', () => app.quit());

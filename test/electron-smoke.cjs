@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const Module = require('node:module');
 const { EventEmitter } = require('node:events');
 const { AccountManager } = require('../lib/account-manager');
+const { BrowserGuard } = require('../lib/browser-guard');
 const repo = process.env.YT_TEST_APP_ROOT || path.join(__dirname, '..');
 const mode = process.argv[2] || 'normal';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-electron-' + mode + '-'));
@@ -57,13 +58,11 @@ Module._load = function (request, parent, ...args) {
             AccountManager: class extends AccountManager {
                 constructor(options) {
                     if (mode === 'real') {
-                        super({ ...options, focus: () => {}, launchTimeout: 20000, closeTimeout: 15000,
-                            spawnProcess(exe, args, spawnOptions) {
-                                return require('node:child_process').spawn(exe, [...args.filter(x => x !== '--start-maximized'),
-                                    '--window-position=-32000,-32000', '--window-size=800,600', '--start-minimized',
-                                    '--disable-background-networking', '--disable-component-update', '--disable-sync', 'about:blank'], spawnOptions);
-                            }
-                        }); manager = this; return;
+                        const guard = new BrowserGuard(); const guardedSpawn = guard.spawn.bind(guard);
+                        guard.spawn = (exe, args) => guardedSpawn(exe, [...args.filter(x => x !== '--start-maximized'),
+                            '--window-position=-32000,-32000', '--window-size=800,600', '--start-minimized',
+                            '--disable-background-networking', '--disable-component-update', '--disable-sync', 'about:blank']);
+                        super({ ...options, focus: () => {}, launchTimeout: 20000, closeTimeout: 15000, guard }); manager = this; return;
                     }
                     super({ ...options, pollDelay: 1, launchTimeout: 100, closeTimeout: 20,
                         findChrome: () => 'C:\\fixture\\chrome.exe',
