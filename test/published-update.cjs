@@ -259,20 +259,15 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
         ps(`Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }`);
         // New production behavior always asks exit vs tray. Invoke the real native
         // confirmation on ONLY the disposable installed app; never bypass the gate.
-        await until(() => ps(`
-            Add-Type -AssemblyName UIAutomationClient;
-            Add-Type -AssemblyName UIAutomationTypes;
-            $processes=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE });
-            foreach($p in $processes) {
-                $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$p.Id);
-                $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,$condition);
-                foreach($window in $windows) {
-                    $buttonCondition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'关闭浏览器并退出');
-                    $button=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$buttonCondition);
-                    if($button) { $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); 'INVOKED'; exit 0 }
-                }
-            }
-        `).stdout.includes('INVOKED'));
+        await until(() => {
+            // EncodedCommand keeps the script's Chinese button label intact in
+            // Windows PowerShell 5.1, regardless of checkout UTF-8 BOM settings.
+            const script=fs.readFileSync(path.join(__dirname,'click-exit-button.ps1'),'utf8');
+            const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{env,windowsHide:true,encoding:'utf8',timeout:15000});
+            fs.appendFileSync(path.join(evidence,'native-exit-button.log'),result.stdout+result.stderr);
+            if(result.status!==0)throw Error('Native exit button invocation failed: '+result.stderr);
+            return result.stdout.includes('INVOKED');
+        });
         await until(()=>!ps(`@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE }).Count`).stdout.trim().match(/^[1-9]/));
     }
     await start(target);
