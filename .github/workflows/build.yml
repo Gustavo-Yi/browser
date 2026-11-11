@@ -11,6 +11,10 @@ on:
         required: true
         default: v2.2.15
 
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -89,6 +93,21 @@ jobs:
 
       - name: Real Chrome process ownership and crash cleanup
         run: npm run test:guard
+
+      - name: Prepare a single draft before parallel asset uploads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft,tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $release = $existing | ConvertFrom-Json
+            if (!$release.isDraft) { throw 'Refusing to modify an already published release' }
+          } else {
+            gh release create $tag --repo $env:GITHUB_REPOSITORY --draft --verify-tag --title $version --notes 'Build under verification.'
+            if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed' }
+          }
 
       - name: Build and Publish
         env:
