@@ -232,12 +232,24 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
         check(`manual NSIS over-install replaces ${oldVersion} with ${target}`,true);
     }
     // The real updater invokes the real NSIS installer and restarts the new installed EXE.
-    const env = {...process.env,YT_VERIFIED_EXE:exe};
+    // Hosted Windows os.tmpdir() can contain RUNNER~1, while Get-Process.Path
+    // returns the expanded path. Compare the same file, not different spellings.
+    const canonicalExe = fs.realpathSync.native(exe);
+    fs.writeFileSync(path.join(evidence,'installed-executable.json'), JSON.stringify({ requested:exe, canonical:canonicalExe },null,2));
+    const env = {...process.env,YT_VERIFIED_EXE:canonicalExe};
     const ps = code => spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',code],{env,windowsHide:true,encoding:'utf8',timeout:15000});
-    if(mode==='online') await until(() => {
-        const r=ps(`$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 }; if($p){'READY'}`);
-        return r.stdout.includes('READY');
-    },60000);
+    if(mode==='online') {
+        try {
+            await until(() => {
+                const r=ps(`$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 }; if($p){'READY'}`);
+                return r.stdout.includes('READY');
+            },60000);
+        } catch (error) {
+            const diagnostic=ps(`Get-Process -Name 'YT多开浏览器' -ErrorAction SilentlyContinue | Select-Object Id,Path,MainWindowHandle,MainWindowTitle | ConvertTo-Json -Compress`);
+            fs.writeFileSync(path.join(evidence,'restart-processes.txt'),diagnostic.stdout+diagnostic.stderr);
+            throw error;
+        }
+    }
     if(mode==='online') check(`real updater runs NSIS and automatically restarts installed ${target}`,true);
     assert(fs.readFileSync(accountsFile).equals(beforeAccounts));
     assert.deepEqual(loginSnapshot(),beforeLogin);
