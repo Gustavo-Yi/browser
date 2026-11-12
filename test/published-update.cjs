@@ -15,12 +15,15 @@ const {spawn, spawnSync} = require('node:child_process');
 const asar = require('@electron/asar'), yaml = require('js-yaml');
 const {findChromePath} = require('../lib/account-manager');
 const {listProcesses} = require('../lib/windows-processes');
+const {compareVersions} = require('../lib/update-protocol');
 const repo = 'Gustavo-Yi/browser', target = (process.env.YT_TARGET_VERSION || '').replace(/^v/,'');
 assert.match(target, /^\d+\.\d+\.\d+$/);
 assert.equal(target, require('../package.json').version);
-const oldVersion = '2.2.15';
+const oldVersion = '2.2.16';
 const mode = process.env.YT_UPGRADE_MODE || 'online';
-assert(['online','manual'].includes(mode));
+assert(['online','manual','push'].includes(mode));
+const networkUpgrade = mode !== 'manual';
+let pushDelivery = null;
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-installed-upgrade-'));
 const evidence = path.resolve('update-verification'); fs.mkdirSync(evidence, {recursive:true});
 const installDir = path.join(root, 'installed-client');
@@ -183,7 +186,7 @@ async function chromeStorage(write) {
 const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog.log'),logs.join(''));process.exit(2);},15*60*1000);
 (async () => {
     const published = await release('v'+target), previous = await release('v'+oldVersion);
-    if(mode==='online') check('target is a published stable release', !published.draft && !published.prerelease);
+    if(networkUpgrade) check('target is a published stable release', !published.draft && !published.prerelease);
     else check('target draft/release is available for isolated install verification',published.tag_name==='v'+target);
     const latestAsset = published.assets.find(x => x.name === 'latest.yml'); assert(latestAsset);
     const manifest = yaml.load((await download(latestAsset,path.join(evidence,'latest.yml'),'v'+target)).toString());
@@ -210,17 +213,53 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const beforeAccounts = fs.readFileSync(accountsFile), beforeLogin = loginSnapshot();
     const config = yaml.load(fs.readFileSync(path.join(installDir,'resources/app-update.yml'),'utf8'));
     assert.equal(config.owner,'Gustavo-Yi');assert.equal(config.repo,'browser');
-    if(mode==='online') {
-    await click('#nav-update-btn');
-    await page.evaluate('window.__ytUpdateStatus=null;window.electronAPI.onUpdate(status=>{window.__ytUpdateStatus=status;})');
-    await click('dialog .button.primary');
-    const downloadState = await until(() => page.evaluate(`(()=>{const s=window.__ytUpdateStatus;return s&&['ready','error'].includes(s.type)&&{ready:s.type==='ready',text:s.message||s.type}})()`),300000);
+    if(networkUpgrade) {
+    await page.evaluate('window.__ytUpdateEvents=[];window.electronAPI.onUpdate(status=>{window.__ytUpdateEvents.push(status);})');
+    if(mode==='push') {
+        // This job is gated behind a successful real manual online upgrade.
+        // Keep an actual unmodified old client connected BEFORE broadcasting.
+        assert(process.env.YT_PUSH_TOKEN?.length >= 32 && process.env.YT_PUSH_URL);
+        await until(()=>page.evaluate('electronAPI.getUpdateState().then(r=>r.ok&&r.update.pushConnection==="connected")'));
+        const response = await fetch(new URL('/status',process.env.YT_PUSH_URL), {
+            headers:{Authorization:'Bearer '+process.env.YT_PUSH_TOKEN},signal:AbortSignal.timeout(20000)
+        });
+        assert.equal(response.status,200);
+        const status = await response.json();
+        assert(!status.latest || compareVersions(status.latest.version,target)<=0,'A newer release must never be overwritten');
+        pushDelivery = status.latest?.version===target ? 'replay' : 'live';
+        if(pushDelivery==='live') {
+            await pause(1000);
+            const beforePush = await page.evaluate('electronAPI.getUpdateState()');
+            check('connected old client stays idle without a manual check before publication',beforePush.update.type==='idle');
+            await screenshot('old-client-before-push');
+        }
+        const notification = spawnSync(process.execPath,[path.join(__dirname,'../scripts/notify-published-update.cjs')], {
+            env:process.env,windowsHide:true,encoding:'utf8',timeout:180000
+        });
+        fs.writeFileSync(path.join(evidence,'notification.log'),notification.stdout+notification.stderr);
+        assert.equal(notification.status,0,notification.stderr || notification.error?.message);
+    } else {
+        await click('#nav-update-btn');
+        await click('dialog .button.primary');
+    }
+    const downloadState = await until(() => page.evaluate(`electronAPI.getUpdateState().then(r=>{const s=r.update;return s&&['ready','error'].includes(s.type)&&{ready:s.type==='ready',text:s.message||s.type,automatic:s.automatic,version:s.version}})`),300000);
     assert(downloadState.ready,downloadState.text);
+    if(mode==='push') {
+        assert.equal(downloadState.version,target);
+        assert.equal(downloadState.automatic,true);
+        await until(()=>page.evaluate('document.querySelector("#finish-update-btn")?.textContent.includes("完成更新")'));
+        check('server push downloads update and shows completion button without any manual check',await page.evaluate('!document.querySelector("dialog")'));
+        const events = await page.evaluate('window.__ytUpdateEvents');
+        fs.writeFileSync(path.join(evidence,'push-client-events.json'),JSON.stringify({delivery:pushDelivery,events},null,2));
+        if(pushDelivery==='live') check('live publication triggers automatic checking in the already-connected installed client',events.some(s=>s.type==='checking'&&s.automatic===true));
+        await pause(1000);
+        check('downloaded update does not install or restart before completion click',child.exitCode===null && versionOnDisk()===oldVersion);
+    }
     await screenshot('old-client-update-ready');
     const pendingDir = path.join(process.env.LOCALAPPDATA,config.updaterCacheDirName,'pending');
     const downloaded = fs.readdirSync(pendingDir).find(x=>x.endsWith('.exe'));assert(downloaded);
     check(`installed old client detects and downloads exact published ${target}`, hash(fs.readFileSync(path.join(pendingDir,downloaded)),'sha512','base64')===entry.sha512);
-    await click('dialog .button.primary').catch(error => {if(error.message !== 'Debugger closed')throw error;});
+    await click(mode==='push'?'#finish-update-btn':'dialog .button.primary').catch(error => {if(error.message !== 'Debugger closed')throw error;});
     await until(() => child.exitCode !== null);
     await until(() => versionOnDisk()===target,180000);
     } else {
@@ -238,7 +277,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     fs.writeFileSync(path.join(evidence,'installed-executable.json'), JSON.stringify({ requested:exe, canonical:canonicalExe },null,2));
     const env = {...process.env,YT_VERIFIED_EXE:canonicalExe};
     const ps = code => spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',code],{env,windowsHide:true,encoding:'utf8',timeout:15000});
-    if(mode==='online') {
+    if(networkUpgrade) {
         try {
             await until(() => {
                 const r=ps(`$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 }; if($p){'READY'}`);
@@ -250,12 +289,12 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
             throw error;
         }
     }
-    if(mode==='online') check(`real updater runs NSIS and automatically restarts installed ${target}`,true);
+    if(networkUpgrade) check(`real updater runs NSIS and automatically restarts installed ${target}`,true);
     assert(fs.readFileSync(accountsFile).equals(beforeAccounts));
     assert.deepEqual(loginSnapshot(),beforeLogin);
     check('installation retains account bytes and Chrome login stores',true);
     // Close only the restarted test EXE gracefully, then reconnect with test-only debugging flags.
-    if(mode==='online') {
+    if(networkUpgrade) {
         ps(`Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:YT_VERIFIED_EXE -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow() }`);
         // New production behavior always asks exit vs tray. Invoke the real native
         // confirmation on ONLY the disposable installed app; never bypass the gate.
@@ -281,6 +320,9 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     check('new installed production code uses the original default data directory and IDs',true);
     await until(()=>page.evaluate('electronAPI.getUpdateState().then(r=>r.ok&&r.update.pushConnection==="connected")'),60000);
     check('exact installed client connects to production Cloudflare push service',true);
+    await click('#nav-update-btn');
+    check('installed update dialog removes idle explanation and connection status while retaining manual check',await page.evaluate('!document.querySelector("dialog [role=status]")&&!document.querySelector("[data-push-status]")&&document.querySelector("dialog .button.primary").textContent==="检查更新"'));
+    await screenshot('upgraded-update-idle');await click('[aria-label="关闭弹窗"]');await pause(200);
     await click('[data-open-appearance]');await click('dialog [data-mode="dark"]');await click('[data-preset="#8b5cf6"]');
     await screenshot('upgraded-appearance');await click('[aria-label="关闭弹窗"]');await pause(250);
     await click('#launch-all-btn');
@@ -292,7 +334,7 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     await click('#close-all-btn');await click('[data-confirm]');
     await until(()=>page.evaluate('document.querySelectorAll(".account-row.running").length===0&&!document.querySelector("dialog")'));
     await chromeStorage(false);check('Cookie, localStorage and IndexedDB survive actual upgrade and reopen',true);
-    if(mode==='online') {
+    if(networkUpgrade) {
     await click('#nav-update-btn');await click('dialog .button.primary');
     await until(()=>page.evaluate('document.querySelector("dialog")?.textContent.includes("当前已是最新版本")'),60000);
     check('new client update check correctly reports latest version',true);
@@ -302,8 +344,8 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     await start(target);
     check('appearance persists across installed-client restart',await page.evaluate('document.documentElement.dataset.theme==="dark"&&document.documentElement.style.getPropertyValue("--accent-fill")==="#8b5cf6"'));
     await stop();
-    fs.writeFileSync(path.join(evidence,mode==='online'?'results.json':'manual-install-results.json'),JSON.stringify({passed:true,mode,onlineUpdateVerified:mode==='online',from:oldVersion,to:target,release:published.html_url,installerSha256:hash(installerBytes),checks,runner:process.env.RUNNER_ENVIRONMENT,realInstall:true,productionUserDataAccessed:false},null,2));
-    console.log(mode==='online'?'PUBLISHED ONLINE UPDATE VERIFIED':'MANUAL INSTALL VERIFIED; ONLINE UPDATE NOT VERIFIED');
+    fs.writeFileSync(path.join(evidence,networkUpgrade?'results.json':'manual-install-results.json'),JSON.stringify({passed:true,mode,onlineUpdateVerified:networkUpgrade,pushUpdateVerified:mode==='push',pushDelivery,from:oldVersion,to:target,release:published.html_url,installerSha256:hash(installerBytes),checks,runner:process.env.RUNNER_ENVIRONMENT,realInstall:true,productionUserDataAccessed:false},null,2));
+    console.log(networkUpgrade ? (mode==='push'?'PUBLISHED PUSH UPDATE VERIFIED':'PUBLISHED ONLINE UPDATE VERIFIED') : 'MANUAL INSTALL VERIFIED; ONLINE UPDATE NOT VERIFIED');
 })().catch(async error => {
     console.error(error.stack);process.exitCode=1;
     fs.writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({mode,error:error.stack,checks,root,userData},null,2));

@@ -3,7 +3,7 @@
 
 生产推送服务：https://yt-browser-push.xscl.workers.dev
 客户端订阅地址：wss://yt-browser-push.xscl.workers.dev/events
-发布版本：2.2.16（正式发布状态以 GitHub Releases 为准）
+发布版本：2.2.17（正式发布状态以 GitHub Releases 为准）
 
 一、已实现的行为
 
@@ -38,7 +38,7 @@
 未发布时不会下载。终端会打印另一个 PowerShell 窗口需要执行的 4 行命令：
 设置该次演示的 YT_PUSH_URL、YT_PUSH_DATA_DIR，然后：
 
-  npm run push:publish -- 2.2.17
+  npm run push:publish -- 2.2.18
 
 演示目标版本随源码版本变化；以后请以演示终端打印的实际版本为准。
 
@@ -89,7 +89,7 @@
 updatePush.url 已配置为上述生产 WSS 地址；安装包仍从原 GitHub Releases 获取。
 普通开发启动不会连接生产推送，只有显式 YT_UPDATE_PUSH_URL 才连接指定服务。
 
-开发源码可这样连接独立本地服务，查看连接状态：
+开发源码可这样连接独立本地服务：
   $env:YT_UPDATE_PUSH_URL='http://127.0.0.1:47321/events'
   npm run preview:local
 
@@ -136,10 +136,12 @@ test:push 启动真实 Electron/main/preload/React、真实本地 SSE、真实 N
 单元/服务测试另覆盖重连补发、服务状态持久化、CLI 发布、鉴权、重复发布、
 拒绝旧版本、写入失败不广播、并发触发、通知排队、有限重试与快照竞争。
 
-发布流程先在 GitHub-hosted Windows runner 验证草稿安装包从 2.2.15 覆盖升级，
+发布流程先在 GitHub-hosted Windows runner 验证草稿安装包从 2.2.16 覆盖升级，
 并确认实际安装的客户端连接生产推送服务。正式发布后再验证线上自动下载、
-NSIS 安装、重启与登录数据保留；成功后通知在线客户端。
-本地测试与演示不覆盖用户已有安装。当前源码版本 2.2.16，演示包版本随之为 2.2.17。
+NSIS 安装、重启与登录数据保留；成功后在另一台全新 runner 安装 2.2.16，
+先连接生产推送服务，再发送通知，验证未点检查更新也能后台下载、显示完成按钮、
+点击后真实安装重启。重复验收时若通知已发布，会明确记录为重连补发验证。
+本地测试与演示不覆盖用户已有安装。当前源码版本 2.2.17，演示包版本随之为 2.2.18。
 
 六、生产发布与维护
 
@@ -149,8 +151,11 @@ NSIS 安装、重启与登录数据保留；成功后通知在线客户端。
 2. 修改客户端后提升 package.json/package-lock.json 版本，推送代码和 vX.Y.Z 标签。
 3. Build and Release 构建草稿，执行源码/下载/生命周期/安装包及真实覆盖安装验证。
 4. 草稿通过后正式发布 Release，触发 Verify Published Windows Update 工作流。
-5. 该工作流验证真实线上升级成功后，notify-published-update.cjs 核对正式版元数据，
-   才调用 POST /publish，并验证真实 WebSocket 接收与持久化状态。失败不会假报成功。
+5. 该工作流验证真实线上升级成功后，启动独立的 pushed-upgrade 验证任务；先让
+   旧安装版保持连接，再由 notify-published-update.cjs 核对正式版元数据并调用
+   POST /publish。验证真实 WebSocket 接收、持久化状态、旧客户端自动后台下载、
+   完成按钮及真实安装重启。推送任务失败时先查看状态与证据，可能通知已发出，
+   不要误认为失败必然等于未推送。
 6. 不需要每次客户端更新都重新部署推送服务。服务逻辑有改动时才运行：
    wrangler deploy --config push-service/cloudflare/wrangler.jsonc
 7. 2.2.15 及更早的旧客户端需先手动升级到 2.2.16；此后可接收主动推送。

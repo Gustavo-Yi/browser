@@ -181,7 +181,10 @@ app.whenReady().then(async () => {
         await click('[data-account="10001"] [data-action="toggle"]');
         await until(() => evaluate('!document.getElementById("close-all-btn").disabled'));
         check('failed single close remains running, error shown', manager.getRunningCount() === 4 && await evaluate('document.querySelector(".toast.error")?.textContent.includes("未退出")'));
-        await click('#nav-update-btn'); await click('dialog .button.primary');
+        await click('#nav-update-btn');
+        check('idle update dialog has no explanatory or connection copy and retains manual check', await evaluate('!document.querySelector("dialog [role=status]") && !document.querySelector("[data-push-status]") && document.querySelector("dialog .button.primary").textContent === "检查更新"'));
+        await shot('update-idle');
+        await click('dialog .button.primary');
         check('development update does not install or download', installed === 0 && updater.autoInstallOnAppQuit === false && await evaluate('document.querySelector("dialog").textContent.includes("不检查线上更新")'));
         await closeDialog();
         updater.emit('update-downloaded', { version: '2.2.16' });

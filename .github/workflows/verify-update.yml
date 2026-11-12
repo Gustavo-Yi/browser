@@ -8,7 +8,7 @@ on:
       version:
         description: Published target version
         required: true
-        default: '2.2.16'
+        default: '2.2.17'
       mode:
         description: Online updater or separate manual-install data-retention test
         type: choice
@@ -43,17 +43,43 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node test/published-update.cjs
-      - name: Notify connected clients only after successful published upgrade verification
-        if: success() && env.YT_UPGRADE_MODE == 'online'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          YT_PUSH_TOKEN: ${{ secrets.YT_PUSH_TOKEN }}
-          YT_PUSH_URL: ${{ vars.YT_PUSH_URL }}
-        run: node scripts/notify-published-update.cjs
       - name: Preserve verification evidence (no browser profiles)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-update-verification
+          path: update-verification/
+          retention-days: 14
+
+  pushed-upgrade:
+    needs: installed-upgrade
+    if: github.event_name == 'release' || inputs.mode == 'online'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      YT_TARGET_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      YT_UPGRADE_MODE: push
+      YT_ALLOW_DISPOSABLE_INSTALL: github-hosted-runner-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:ui
+      - name: Connect installed old client, publish notification, and verify real background upgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YT_PUSH_TOKEN: ${{ secrets.YT_PUSH_TOKEN }}
+          YT_PUSH_URL: ${{ vars.YT_PUSH_URL }}
+        run: node test/published-update.cjs
+      - name: Preserve real push upgrade evidence (no browser profiles)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-push-update-verification
           path: update-verification/
           retention-days: 14
