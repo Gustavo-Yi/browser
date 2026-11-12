@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Existing release tag to build (never moves the tag)
         required: true
-        default: v2.2.15
+        default: v2.2.16
 
 concurrency:
   group: release-${{ inputs.release_tag || github.ref_name }}
@@ -88,6 +88,9 @@ jobs:
       - name: Electron UI and isolation tests
         run: npm run test:electron
 
+      - name: Push-triggered and manual update download tests
+        run: npm run test:push
+
       - name: Tray and lifecycle entrypoint tests
         run: npm run test:lifecycle
 
@@ -120,3 +123,19 @@ jobs:
           $product = node -p "require('./package.json').productName"
           $version = node -p "require('./package.json').version"
           npm run test:packaged -- "dist/$product Setup $version.exe"
+
+      - name: Verify draft over-install and production push connection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YT_TARGET_VERSION: ${{ inputs.release_tag || github.ref_name }}
+          YT_UPGRADE_MODE: manual
+          YT_ALLOW_DISPOSABLE_INSTALL: github-hosted-runner-only
+        run: node test/published-update.cjs
+
+      - name: Preserve pre-publication installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: draft-install-verification
+          path: update-verification/
+          retention-days: 14

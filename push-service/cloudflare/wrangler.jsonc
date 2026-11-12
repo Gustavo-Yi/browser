@@ -1,0 +1,13 @@
+{
+  "name": "yt-browser-push",
+  "account_id": "0fc4aa8e1b13a54578a50101811895f1",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-01-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [{ "name": "RELEASE_HUB", "class_name": "ReleaseHub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ReleaseHub"] }],
+  "observability": { "enabled": true }
+}

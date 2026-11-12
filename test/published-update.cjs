@@ -18,7 +18,7 @@ const {listProcesses} = require('../lib/windows-processes');
 const repo = 'Gustavo-Yi/browser', target = (process.env.YT_TARGET_VERSION || '').replace(/^v/,'');
 assert.match(target, /^\d+\.\d+\.\d+$/);
 assert.equal(target, require('../package.json').version);
-const oldVersion = '2.2.14';
+const oldVersion = '2.2.15';
 const mode = process.env.YT_UPGRADE_MODE || 'online';
 assert(['online','manual'].includes(mode));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-installed-upgrade-'));
@@ -88,7 +88,7 @@ async function cdp(url) {
 }
 function cleanEnv() {
     const env = {...process.env};
-    for (const key of ['ELECTRON_RUN_AS_NODE','GH_TOKEN','GITHUB_TOKEN','ACTIONS_RUNTIME_TOKEN']) delete env[key];
+    for (const key of ['ELECTRON_RUN_AS_NODE','GH_TOKEN','GITHUB_TOKEN','ACTIONS_RUNTIME_TOKEN','YT_PUSH_TOKEN','YT_UPDATE_PUSH_URL']) delete env[key];
     return env;
 }
 async function start(version) {
@@ -274,11 +274,13 @@ const watchdog = setTimeout(() => {fs.writeFileSync(path.join(evidence,'watchdog
     const archive = path.join(installDir,'resources/app.asar');
     // Windows Git checkout can use CRLF while a local release build uses LF.
     const normalized = value => value.toString('utf8').replace(/\r\n/g,'\n');
-    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js','lib/security.js','lib/windows-processes.js','lib/browser-guard.js','lib/client-lifecycle.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
+    for (const file of ['main.js','preload.js','renderer.js','style.css','lib/account-manager.js','lib/storage.js','lib/security.js','lib/windows-processes.js','lib/browser-guard.js','lib/client-lifecycle.js','lib/update-coordinator.js','lib/update-protocol.js','lib/update-push-client.js','lib/update-websocket-client.js']) assert.equal(normalized(asar.extractFile(archive,file)),normalized(fs.readFileSync(path.join(__dirname,'..',file))),file);
     check('installed native browser guard exists outside ASAR', fs.existsSync(path.join(installDir,'resources/native/YTBrowserGuard.exe')));
     const state = await page.evaluate('electronAPI.getState()');
     assert.equal(state.ok,true,JSON.stringify(state));assert.deepEqual(state.accounts.map(x=>x.id),ids);
     check('new installed production code uses the original default data directory and IDs',true);
+    await until(()=>page.evaluate('electronAPI.getUpdateState().then(r=>r.ok&&r.update.pushConnection==="connected")'),60000);
+    check('exact installed client connects to production Cloudflare push service',true);
     await click('[data-open-appearance]');await click('dialog [data-mode="dark"]');await click('[data-preset="#8b5cf6"]');
     await screenshot('upgraded-appearance');await click('[aria-label="关闭弹窗"]');await pause(250);
     await click('#launch-all-btn');

@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu, powerMonitor, net } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const fs = require('node:fs');
@@ -10,6 +10,9 @@ const { validateId, migrateLegacyData } = require('./lib/storage');
 const { listProcesses } = require('./lib/windows-processes');
 const { trustedSender, protectWindow } = require('./lib/security');
 const { ClientLifecycle } = require('./lib/client-lifecycle');
+const { UpdateCoordinator } = require('./lib/update-coordinator');
+const { UpdatePushClient } = require('./lib/update-push-client');
+const { UpdateWebSocketClient } = require('./lib/update-websocket-client');
 
 autoUpdater.logger = log;
 log.transports.file.level = 'info';
@@ -149,40 +152,43 @@ async function createWindow() {
     manager.on('state', () => {
         if (tray && !tray.isDestroyed()) tray.setToolTip('YT 多开客户端 · ' + (manager.shuttingDown ? '正在退出' : manager.getRunningCount() + ' 个环境运行中'));
     });
-    let updateState = 'idle';
-    const notifyUpdate = (type, data = {}) => safeSend(win, 'update-status', { type, ...data });
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    const updaterEvents = [];
-    function onUpdate(event, callback) {
-        autoUpdater.on(event, callback); updaterEvents.push([event, callback]);
-    }
-    function updateFailed(error) {
-        log.warn('Update failed', error); updateState = 'error';
-        notifyUpdate('error', { message: error.message || '更新失败，请稍后重试。' });
-    }
-    onUpdate('update-available', info => {
-        updateState = 'downloading'; notifyUpdate('available', { version: info.version });
-        autoUpdater.downloadUpdate().catch(updateFailed);
+    const updates = new UpdateCoordinator({
+        updater: autoUpdater, version: app.getVersion(), enabled: app.isPackaged, log,
+        notify: status => safeSend(win, 'update-status', status),
+        canUpdate: () => !manager.shuttingDown && !lifecycle.exiting && !updating
     });
-    onUpdate('download-progress', info => notifyUpdate('progress', { percent: info.percent }));
-    onUpdate('update-downloaded', () => { updateState = 'ready'; notifyUpdate('ready'); });
-    onUpdate('update-not-available', () => { updateState = 'idle'; notifyUpdate('none'); });
-    onUpdate('error', updateFailed);
-    handle('check-update', async () => {
-        if (updateState === 'ready') { notifyUpdate('ready'); return {}; }
-        if (['checking', 'downloading'].includes(updateState)) return {};
-        if (!app.isPackaged) { notifyUpdate('development'); return {}; }
-        updateState = 'checking'; notifyUpdate('checking');
-        try { await autoUpdater.checkForUpdates(); } catch (error) { updateFailed(error); }
-        return {};
-    });
+    let push = null;
+    // The publisher secret never belongs in the client. This is only the public
+    // subscription URL; release artifacts still come from the configured feed.
+    const pushURL = process.env.YT_UPDATE_PUSH_URL || (app.isPackaged ? require('./package.json').updatePush?.url : '');
+    if (pushURL) {
+        try {
+            const PushClient = /^wss?:/.test(pushURL) ? UpdateWebSocketClient : UpdatePushClient;
+            push = new PushClient({ url: pushURL, version: app.getVersion(), WebSocketClass: net.WebSocket,
+                onRelease: release => updates.receive(release), onConnection: state => updates.connection(state) });
+        } catch (error) { log.warn('Push configuration invalid', error); updates.connection('invalid'); }
+    }
+    const resumePush = () => push?.resume();
+    powerMonitor.on('resume', resumePush);
+    handle('get-update-state', () => ({ update: updates.getState() }));
+    handle('check-update', async () => ({ update: await updates.check({ manual: true }) }));
     handle('restart-update', async () => {
-        if (updateState !== 'ready' || updating) throw new Error('更新尚未准备好。');
+        if (!updates.isReady || updating) throw new Error('更新尚未准备好。');
         if (manager.busy) throw new Error('请等待当前浏览器操作完成后再更新。');
+        if (lifecycle.exiting || lifecycle.allowQuit) throw new Error('客户端正在退出，请稍后重试。');
         updating = true;
         try {
-            await lifecycle.exit({ interactive: false, finish: () => autoUpdater.quitAndInstall(true, true) });
+            await lifecycle.exit({ interactive: false, finish: () => {
+                // electron-updater v6 may emit an inline install error rather than
+                // throw. Keep the lifecycle gate closed if this handoff fails.
+                let installError;
+                const failed = error => { installError = error; };
+                autoUpdater.on('error', failed);
+                try {
+                    autoUpdater.quitAndInstall(true, true);
+                    if (installError) throw installError;
+                } finally { autoUpdater.removeListener('error', failed); }
+            } });
         } finally { updating = false; }
     });
     win.on('close', event => {
@@ -202,11 +208,12 @@ async function createWindow() {
     win.on('closed', () => {
         clearInterval(timer); clearTimeout(focusTimer); manager.removeAllListeners();
         for (const channel of registered) ipcMain.removeHandler(channel);
-        for (const [event, callback] of updaterEvents) autoUpdater.removeListener(event, callback);
+        push?.stop(); updates.dispose(); powerMonitor.removeListener('resume', resumePush);
         if (tray) { tray.destroy(); tray = null; }
         mainWindow = null;
     });
     await win.loadFile(entry);
+    push?.start();
     await manager.refresh().catch(() => {});
 }
 if (!singleInstance) app.quit();

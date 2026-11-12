@@ -91,7 +91,7 @@ async function close() {
     const integrity = JSON.parse(Buffer.from(resources.find(x => x.type === 'INTEGRITY' && x.id === 'ELECTRONASAR').bin).toString());
     const entry = integrity.find(x => /resources[\\/]+app\.asar$/.test(x.file));
     check('ASAR integrity resource retained and matches header SHA256', entry?.alg === 'SHA256' && entry.value === hash(asar.getRawHeader(archive).headerString));
-    for (const file of ['main.js','preload.js','renderer.js','index.html','style.css','lib/account-manager.js','lib/storage.js','lib/windows-processes.js','lib/security.js','lib/browser-guard.js','lib/client-lifecycle.js']) assert(asar.extractFile(archive, file).equals(fs.readFileSync(path.join(repo, file))), file);
+    for (const file of ['main.js','preload.js','renderer.js','index.html','style.css','lib/account-manager.js','lib/storage.js','lib/windows-processes.js','lib/security.js','lib/browser-guard.js','lib/client-lifecycle.js','lib/update-coordinator.js','lib/update-protocol.js','lib/update-push-client.js','lib/update-websocket-client.js']) assert(asar.extractFile(archive, file).equals(fs.readFileSync(path.join(repo, file))), file);
     check('packaged native browser guard matches locally verified binary',
         hash(fs.readFileSync(path.join(application, 'resources/native/YTBrowserGuard.exe'))) === hash(fs.readFileSync(path.join(repo, 'native/bin/YTBrowserGuard.exe'))));
     check('installer contains exact verified production source', true);

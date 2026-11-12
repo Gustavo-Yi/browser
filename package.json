@@ -1,11 +1,16 @@
 {
   "name": "yutong-browser",
   "productName": "YT多开浏览器",
-  "version": "2.2.15",
+  "version": "2.2.16",
   "description": "Multi-instance browser with isolated profiles",
   "main": "main.js",
+  "updatePush": { "url": "wss://yt-browser-push.xscl.workers.dev/events" },
   "scripts": {
     "start": "electron .",
+    "push:server": "node push-service/start.cjs",
+    "push:publish": "node scripts/publish-update.cjs",
+    "test:push": "npm run build:ui && node test/run-push-electron.cjs",
+    "demo:push": "npm run build:ui && node scripts/run-push-demo.cjs",
     "build:native": "node scripts/build-native.cjs",
     "test:guard": "npm run build:native && node test/guard-integration.cjs",
     "test:lifecycle": "npm run build:ui && node test/run-lifecycle-electron.cjs",

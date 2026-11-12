@@ -181,7 +181,10 @@ app.whenReady().then(async () => {
         await click('[data-account="10001"] [data-action="toggle"]');
         await until(() => evaluate('!document.getElementById("close-all-btn").disabled'));
         check('failed single close remains running, error shown', manager.getRunningCount() === 4 && await evaluate('document.querySelector(".toast.error")?.textContent.includes("未退出")'));
-        updater.emit('update-downloaded');
+        await click('#nav-update-btn'); await click('dialog .button.primary');
+        check('development update does not install or download', installed === 0 && updater.autoInstallOnAppQuit === false && await evaluate('document.querySelector("dialog").textContent.includes("不检查线上更新")'));
+        await closeDialog();
+        updater.emit('update-downloaded', { version: '2.2.16' });
         check('update install blocked on graceful-close failure', !(await evaluate('window.electronAPI.restartUpdate()')).ok && installed === 0);
         closeFails = false;
         await click('[data-account="10001"] [data-action="toggle"]');
@@ -228,8 +231,8 @@ app.whenReady().then(async () => {
         check('original fixture login bytes untouched', fs.readFileSync(path.join(profile, 'Preferences'), 'utf8') === '{"existing":true' && fs.readFileSync(path.join(profile, 'Cookies'), 'utf8') === 'fixture login marker');
         await evaluate('window.open("about:blank")'); await pause(100); check('new windows denied', BrowserWindow.getAllWindows().length === 1);
         const originalURL = win.webContents.getURL(); await evaluate('window.location.href="data:text/html,blocked"'); await pause(150); check('external navigation denied', win.webContents.getURL() === originalURL);
-        await click('#nav-update-btn'); await click('dialog .button.primary');
-        check('development update does not install or download', installed === 0 && updater.autoInstallOnAppQuit === false && await evaluate('document.querySelector("dialog").textContent.includes("不检查线上更新")'));
+        await click('#nav-update-btn');
+        check('ready update survives renderer reload and stale no-update events', installed === 0 && await evaluate('document.querySelector("dialog .button.primary").textContent === "完成更新"'));
         await closeDialog();
     }
     await shot('final');

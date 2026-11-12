@@ -10,3 +10,6 @@ update-verification/
 .DS_Store
 native/bin/
 dist-lifecycle/
+.local/
+.wrangler/
+.dev.vars*

@@ -13,3 +13,7 @@ export async function checked(promise) {
     if (!result?.ok) throw new Error(result?.message || '操作未成功，请重试。');
     return result;
 }
+// An initial IPC snapshot may arrive after a newer pushed event.
+export function newerUpdate(current, incoming) {
+    return incoming && (incoming.revision ?? -1) >= (current.revision ?? -1) ? incoming : current;
+}

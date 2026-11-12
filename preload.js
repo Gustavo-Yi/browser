@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openProfilesRoot: () => ipcRenderer.invoke('open-profiles-root'),
     selectChromePath: () => ipcRenderer.invoke('select-chrome-path'),
     openChromeDownload: () => ipcRenderer.invoke('open-chrome-download'),
+    getUpdateState: () => ipcRenderer.invoke('get-update-state'),
     checkUpdate: () => ipcRenderer.invoke('check-update'),
     restartUpdate: () => ipcRenderer.invoke('restart-update'),
     onState: callback => subscribe('app-state', callback),

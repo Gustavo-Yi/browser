@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SquaresFour, FolderSimple, ArrowClockwise, Plus, MagnifyingGlass, Play, XCircle, PencilSimple, DotsThree, X, Check, Trash, Copy, Info, CircleNotch, Palette } from '@phosphor-icons/react';
 import { AppearanceShortcut, AppearancePanel } from './Appearance.jsx';
-import { checked, validateName, formatLastUsed } from './client-model.js';
+import { checked, validateName, formatLastUsed, newerUpdate } from './client-model.js';
 
 const api = window.electronAPI;
 const Icon = ({ as: Component, ...props }) => <Component size={24} weight="regular" aria-hidden="true" {...props}/>;
@@ -96,15 +96,17 @@ export function App() {
   const visibleRunning = running.filter(matches), visibleIdle = idle.filter(matches);
   function snapshot() { positions.current = new Map([...document.querySelectorAll('[data-account]')].map(el => [el.dataset.account, el.getBoundingClientRect()])); }
   function applyState(next) { snapshot(); setState(next); setLoaded(true); }
+  function applyUpdate(next) { setUpdate(current => newerUpdate(current, next)); }
   function notify(message, kind = 'success') {
     const id = crypto.randomUUID(); setToasts(t => [...t.slice(-2), { id, message, kind }]);
     const timer = setTimeout(() => { setToasts(t => t.filter(x => x.id !== id)); toastTimers.current.delete(timer); }, 5500); toastTimers.current.add(timer);
   }
   useEffect(() => {
     let mounted = true;
-    const subscriptions = [api.onState(s => { if (mounted) applyState(s); }), api.onLaunchProgress(setProgress), api.onUpdate(setUpdate)];
+    const subscriptions = [api.onState(s => { if (mounted) applyState(s); }), api.onLaunchProgress(setProgress), api.onUpdate(s => { if (mounted) applyUpdate(s); })];
     checked(api.getState()).then(s => { if (mounted) applyState(s); }).catch(e => { if (mounted) setState(s => ({ ...s, warning: e.message })); });
     checked(api.getVersion()).then(v => { if (mounted) setVersion(v.version); }).catch(e => notify(e.message, 'error'));
+    checked(api.getUpdateState()).then(result => { if (mounted) applyUpdate(result.update); }).catch(() => {});
     const media = matchMedia('(prefers-reduced-motion: reduce)'), change = () => setReduced(media.matches); media.addEventListener('change', change);
     return () => { mounted = false; subscriptions.forEach(fn => fn()); media.removeEventListener('change', change); toastTimers.current.forEach(clearTimeout); };
   }, []);
@@ -158,8 +160,10 @@ export function App() {
       setQuery(''); notify(modal.type === 'edit' ? '环境名称已保存' : '环境已创建');
     });
   }
-  async function checkUpdate() { setUpdate({ type: 'checking' }); try { await checked(api.checkUpdate()); } catch (e) { setUpdate({ type: 'error', message: e.message }); } }
-  const updateMessage = ({ idle: '检查是否有新版本', checking: '正在检查更新…', available: `发现新版本 ${update.version || ''}，正在下载…`, progress: `正在下载 ${Math.round(Number(update.percent) || 0)}%`, ready: '更新已下载，安装前会正常关闭浏览器环境。', none: '当前已是最新版本', development: '本地开发版本，不检查线上更新。', error: update.message || '更新失败，请稍后重试。' })[update.type];
+  async function checkUpdate() { try { const result = await checked(api.checkUpdate()); applyUpdate(result.update); } catch (e) { notify(e.message, 'error'); } }
+  const finishUpdate = () => attempt(() => act({ type: 'update' }, () => checked(api.restartUpdate())));
+  const updateMessage = ({ idle: '可手动检查更新。收到服务端发布通知后，新版本会在后台下载。', checking: update.automatic ? '已收到发布通知，正在获取更新包信息…' : '正在检查更新…', available: `发现新版本 ${update.version || ''}，正在后台下载，可继续使用。`, progress: `正在后台下载 ${Math.round(Number(update.percent) || 0)}%，可继续使用。`, ready: `新版本${update.version ? ` v${update.version}` : ''}已准备好。点击「完成更新」将正常关闭全部浏览器环境，然后安装并重启客户端。`, none: '当前已是最新版本', development: '本地开发版本，不检查线上更新。', error: update.message || '更新失败，请稍后重试。' })[update.type];
+  const pushMessage = ({ disabled: '推送服务尚未配置，手动检查仍可使用。', invalid: '推送地址配置有误，手动检查仍可使用。', connecting: '正在连接推送服务…', connected: '已连接推送服务 · 发布后即时通知', reconnecting: '推送连接已断开，正在重连；手动检查仍可使用。' })[update.pushConnection];
   const updateBusy = ['checking', 'available', 'progress'].includes(update.type);
   const title = modal && ({ new: '新建环境', bulk: '批量新建', edit: '编辑环境', delete: '从列表删除环境', closeAll: '关闭全部环境', update: '版本与更新', appearance: '外观设置', chrome: '选择 Chrome' })[modal.type];
   function row(a) {
@@ -180,7 +184,7 @@ export function App() {
     <aside className="sidebar glass" aria-label="主导航"><div className="brand"><img src="yutonglogo.png" alt="YT"/><strong>YT多开浏览器</strong></div>
       <nav><button className={`nav-item ${!modal || !['update', 'appearance'].includes(modal.type) ? 'selected' : ''}`} onClick={() => { setQuery(''); setMenu(null); setModal(null); }} aria-current={!modal ? 'page' : undefined}><Icon as={SquaresFour} size={29}/>环境</button>
         <button className="nav-item" id="open-root-folder-btn" onClick={() => attempt(() => checked(api.openProfilesRoot()))}><Icon as={FolderSimple} size={29}/>数据目录</button>
-        <button className={`nav-item ${modal?.type === 'update' ? 'selected' : ''}`} id="nav-update-btn" onClick={() => openModal('update')}><Icon as={ArrowClockwise} size={29}/>更新</button>
+        <button className={`nav-item ${modal?.type === 'update' ? 'selected' : ''}`} id="nav-update-btn" onClick={() => openModal('update')}><Icon as={ArrowClockwise} size={29}/>更新{update.type === 'ready' && <span className="update-dot" aria-label="新版本已准备好"/>}</button>
         <button className={`nav-item ${modal?.type === 'appearance' ? 'selected' : ''}`} data-open-appearance onClick={() => openModal('appearance')}><Icon as={Palette} size={29}/>外观</button></nav>
       <AppearanceShortcut onOpen={() => openModal('appearance')}/>
     </aside>
@@ -196,7 +200,7 @@ export function App() {
       </div><footer><span id="app-version-label">{version ? `v${version}` : ''}</span></footer>
     </main>
     <div className="toast-stack" aria-live="polite" aria-atomic="false">{toasts.map(t => <div className={`toast glass ${t.kind}`} key={t.id}><Icon as={t.kind === 'success' ? Check : Info} size={21}/><span>{t.message}</span><button aria-label="关闭提示" onClick={() => setToasts(rows => rows.filter(x => x.id !== t.id))}><Icon as={X} size={17}/></button></div>)}</div>
-    {['available', 'progress', 'ready', 'error'].includes(update.type) && modal?.type !== 'update' && <button className="update-notice glass" onClick={() => openModal('update')}><Icon as={ArrowClockwise} size={20}/>{updateMessage}</button>}
+    {update.type === 'ready' && modal?.type !== 'update' && <section className="update-notice glass" aria-label="版本更新"><div className="update-notice-copy" role="status"><strong>新版本{update.version ? ` v${update.version}` : ''}已准备好</strong><span>将关闭全部浏览器环境并重启客户端</span></div><button id="finish-update-btn" className="button primary" disabled={!loaded || busy} onClick={finishUpdate}><Icon as={ArrowClockwise} size={18}/>{pending?.type === 'update' ? '正在重启…' : '完成更新'}</button></section>}
     {menu && <ContextMenu key={menu.id} menu={menu} onClose={() => setMenu(null)} readOnly={state.readOnly} busy={busy} statusKnown={state.statusKnown} onAction={action => {
       const a = accounts.find(a => a.id === menu.id); menu.trigger?.focus(); setMenu(null); if (!a) return;
       if (action === 'copy') attempt(async () => { try { await navigator.clipboard.writeText(a.id); notify('ID 已复制'); } catch { notify(`ID：${a.id}`, 'info'); } });
@@ -211,7 +215,7 @@ export function App() {
         else { await checked(api.deleteAccount(modal.account.id)); notify('已从列表删除，浏览器数据目录已保留'); }
       })}><div className="dialog-symbol"><Icon as={modal.type === 'delete' ? Trash : XCircle} size={32}/></div><p className="confirmation-copy">{modal.type === 'delete' ? `确定从列表删除「${modal.account.name}」吗？` : `关闭当前 ${running.length} 个浏览器环境？`}</p><p className="dialog-description">{modal.type === 'delete' ? '请先关闭此环境。此操作只删除列表记录，不删除浏览器数据目录。' : '会请求 Chrome 正常退出；如果浏览器未退出，将保留其运行状态，不会强制结束。'}</p></ConfirmAction>}
       {modal.type === 'chrome' && <><p className="dialog-description">未找到 Chrome，请选择已安装的 chrome.exe。</p><div className="dialog-actions"><button className="button" onClick={() => attempt(() => checked(api.openChromeDownload()))}>下载 Chrome</button><button className="button primary" onClick={() => attempt(async () => { const r = await checked(api.selectChromePath()); if (!r.canceled) { close(); notify('Chrome 路径已保存，请重新启动环境'); } })}>选择路径</button></div></>}
-      {modal.type === 'update' && <><div className="about-brand"><img src="yutonglogo.png" alt=""/><strong>YT多开浏览器</strong><span>v{version}</span></div><p className={`dialog-description ${update.type === 'error' ? 'danger-text' : ''}`} role="status">{updateMessage}</p>{update.type === 'progress' && <progress max="100" value={Math.max(0, Math.min(100, Number(update.percent) || 0))}/>}<div className="dialog-actions"><button className="button" onClick={close}>关闭</button><button className="button primary" disabled={updateBusy || busy} onClick={() => update.type === 'ready' ? attempt(() => act({ type: 'update' }, () => checked(api.restartUpdate()))) : checkUpdate()}>{updateBusy ? '处理中…' : update.type === 'ready' ? '重启并安装' : '检查更新'}</button></div></>}
+      {modal.type === 'update' && <><div className="about-brand"><img src="yutonglogo.png" alt=""/><strong>YT多开浏览器</strong><span>v{version}</span></div><p className={`dialog-description ${update.type === 'error' ? 'danger-text' : ''}`} role="status">{updateMessage}</p>{pushMessage && <p className="field-help" data-push-status>{pushMessage}</p>}{update.type === 'progress' && <progress aria-label="更新下载进度" max="100" value={Math.max(0, Math.min(100, Number(update.percent) || 0))}/>}<div className="dialog-actions"><button className="button" onClick={close}>关闭</button><button className="button primary" disabled={updateBusy || busy} onClick={() => update.type === 'ready' ? finishUpdate() : checkUpdate()}>{pending?.type === 'update' ? '正在重启…' : updateBusy ? '处理中…' : update.type === 'ready' ? '完成更新' : '检查更新'}</button></div></>}
     </>}</GlassDialog>}
   </div>;
 }

@@ -1,0 +1,158 @@
+服务端推送更新：生产服务与本地验证
+================================
+
+生产推送服务：https://yt-browser-push.xscl.workers.dev
+客户端订阅地址：wss://yt-browser-push.xscl.workers.dev/events
+发布版本：2.2.16（正式发布状态以 GitHub Releases 为准）
+
+一、已实现的行为
+
+发布并验证完成 → 发布端 POST /publish → 云端 WebSocket 长连接通知客户端 →
+客户端获取可信更新源的版本信息、后台下载并校验 → 显示“完成更新” →
+用户点击后正常关闭所有受管理的浏览器环境 → 静默安装并重启客户端。
+
+保留“更新 → 检查更新”手动入口。两种触发方式共用同一流程，正在下载或
+已准备好的更新不会被重复下载。普通退出不会偷偷执行更新安装。
+
+没有启动自动查版本、定时查版本或轮询版本接口：
+- 生产环境为 Cloudflare Workers + SQLite Durable Object，使用可休眠 WebSocket。
+  本地独立 Node 服务保留 SSE；两种传输都是服务端主动发送，不轮询。
+- 每 25 秒的 ping/pong（本地 SSE 为注释）只维持连接，不查询更新源。
+- 网络断开时重连；重连和下次启动时服务端补发仍高于客户端版本的最新通知。
+- 收到通知后的下载失败，针对这一条已知发布最多追加 3 次重试，间隔
+  5 秒、15 秒、60 秒；之后停止，仍可手动重试。不是发现新版本的定时任务。
+- 获取 latest.yml 是收到发布通知/手动点击之后的一次校验步骤，而非轮询。
+- 客户端完全退出或电脑离线时无法实时收通知，下次连接后补发。
+
+二、一键本地演示（推荐先用这个）
+
+在 PowerShell 中运行：
+
+  Set-Location -LiteralPath 'D:\develop\browser'
+  npm run demo:push
+
+该命令同时启动仅监听 loopback 随机端口的推送服务、本地测试更新源、
+独立数据目录里的真实客户端 UI。窗口标题会明确标注“本地推送演示”。
+两个环境是进程清单测试数据，不会启动或接管真实 Chrome。
+
+未发布时不会下载。终端会打印另一个 PowerShell 窗口需要执行的 4 行命令：
+设置该次演示的 YT_PUSH_URL、YT_PUSH_DATA_DIR，然后：
+
+  npm run push:publish -- 2.2.16
+
+执行后，客户端无需点击“检查更新”，就会收到通知、下载、显示“完成更新”。
+也可以不发布通知，直接点击“更新 → 检查更新”，验证手动入口。
+
+演示使用真实 electron-updater 网络下载和 SHA512 校验，但测试包只是无执行
+能力的数据。点击“完成更新”会验证正常关闭环境与安装交接后退出演示，
+不会执行安装程序、替换已有安装、修改真实账号或 WhatsApp 登录数据。
+演示资源均在终端打印的临时目录；不与 standalone 服务的发布状态混用。
+关闭演示可用客户端“退出客户端”，或托盘菜单退出。
+
+三、单独运行推送服务
+
+  Set-Location -LiteralPath 'D:\develop\browser'
+  npm run push:server
+
+默认只监听 127.0.0.1:47321，不对局域网/公网暴露。
+默认状态目录：D:\develop\browser\.local\push-service
+第一次启动生成 publish-token 文件；不在日志中打印密钥。
+发布状态保存为 latest-release.json，重启服务后仍能补发。
+这些本地状态/密钥被 .gitignore 忽略，也不在客户端打包文件白名单中。
+
+另开 PowerShell 发布通知（须先让对应版本安装包和 latest.yml 可下载）：
+
+  Set-Location -LiteralPath 'D:\develop\browser'
+  npm run push:publish -- 2.2.16
+
+同版本重复发布幂等；低于已发布版本返回 409；状态持久化失败不会广播。
+版本目前限 x.y.z 稳定版本；当前发行目标为 Windows x64，不含灰度/预发布。
+单实例本地服务；不要启动多个服务进程共用同一状态目录。
+
+环境变量：
+  YT_PUSH_HOST       服务监听地址，默认 127.0.0.1
+  YT_PUSH_PORT       服务监听端口，默认 47321
+  YT_PUSH_DATA_DIR   服务/发布脚本使用的状态与本地密钥目录
+  YT_PUSH_TOKEN      发布端 Bearer 密钥，至少 32 字符；不配置时仅本地生成密钥
+  YT_PUSH_URL        发布脚本目标服务地址，默认 http://127.0.0.1:47321
+  YT_UPDATE_PUSH_URL 客户端订阅地址，例如 http://127.0.0.1:47321/events
+
+不要把 YT_PUSH_TOKEN 放入客户端、package.json、Git 或发布资源。
+非 loopback 监听要求显式配置 YT_PUSH_TOKEN，并应在 TLS 反向代理后运行。
+目前公开订阅的是版本通知，不包含账号、登录信息或下载授权。
+
+四、客户端连接配置与接口
+
+客户端读取顺序：YT_UPDATE_PUSH_URL → package.json 的 updatePush.url。
+updatePush.url 已配置为上述生产 WSS 地址；安装包仍从原 GitHub Releases 获取。
+普通开发启动不会连接生产推送，只有显式 YT_UPDATE_PUSH_URL 才连接指定服务。
+
+开发源码可这样连接独立本地服务，查看连接状态：
+  $env:YT_UPDATE_PUSH_URL='http://127.0.0.1:47321/events'
+  npm run preview:local
+
+注意：普通开发启动仍禁止下载/安装线上更新，收到通知只显示开发模式提示。
+需要完整本地下载体验时使用第二节的隔离演示，不要解除生产代码中的开发保护。
+安装版从已配置的 GitHub Releases 下载；推送事件不能注入下载 URL、命令或凭据。
+生产推送使用 Electron net.WebSocket，继承 Chromium 系统代理/PAC。
+HTTP/WS 只允许 loopback，远程订阅必须 HTTPS/WSS，不忽略证书校验。
+
+服务接口：
+  GET  /health                       存活检查
+  GET  /events?version=2.2.15         生产为 WebSocket Upgrade，本地 Node 为 SSE
+                                    连接时补发最新可用版本
+  GET  /status                        仅生产，Bearer 鉴权后读取持久化发布状态
+  POST /publish                      认证发布端触发
+       Authorization: Bearer <secret>
+       Content-Type: application/json
+       {"version":"2.2.16"}
+
+事件示例：
+  id: <服务生成的 UUID>
+  event: release
+  data: {"id":"<UUID>","version":"2.2.16","publishedAt":"<ISO时间>"}
+
+服务先原子写入状态再广播，限制请求体、客户端数量和慢连接缓存。
+客户端将通知中的版本与可信更新源核对；下载由现有 electron-updater 校验。
+发布通知不会跳过现有校验，也不会强制重启正在使用的客户端。
+UI 重载会通过受信任 IPC 读取主进程快照，下载就绪提示不会丢失。
+
+五、验证和边界
+
+在 D:\develop\browser 中运行：
+  npm test
+  npm run test:push
+  npm run test:electron
+  npm run test:lifecycle
+
+test:push 启动真实 Electron/main/preload/React、真实本地 SSE、真实 NsisUpdater。
+覆盖服务端主动通知、无推送时手动检查、SHA512 错误拒绝并手动恢复、
+后台/托盘接收、重复触发、UI 重载、浅色/深色与 920×680 布局、退出失败
+阻止安装、安装启动同步错误恢复、账号文件和登录测试数据保持不变。
+只有进程清单和最终安装调用被测试替身拦截，不运行真实安装器。
+
+单元/服务测试另覆盖重连补发、服务状态持久化、CLI 发布、鉴权、重复发布、
+拒绝旧版本、写入失败不广播、并发触发、通知排队、有限重试与快照竞争。
+
+发布流程先在 GitHub-hosted Windows runner 验证草稿安装包从 2.2.15 覆盖升级，
+并确认实际安装的客户端连接生产推送服务。正式发布后再验证线上自动下载、
+NSIS 安装、重启与登录数据保留；成功后通知在线客户端。
+本地测试与演示不覆盖用户已有安装。当前源码版本 2.2.16，演示包版本随之为 2.2.17。
+
+六、生产发布与维护
+
+1. Cloudflare 服务已独立部署，配置文件为 push-service/cloudflare/wrangler.jsonc。
+   云端密钥保存在 Worker secret；GitHub secret YT_PUSH_TOKEN 用于发布通知，
+   GitHub variable YT_PUSH_URL 保存公开服务地址。不要把密钥提交到仓库或客户端。
+2. 修改客户端后提升 package.json/package-lock.json 版本，推送代码和 vX.Y.Z 标签。
+3. Build and Release 构建草稿，执行源码/下载/生命周期/安装包及真实覆盖安装验证。
+4. 草稿通过后正式发布 Release，触发 Verify Published Windows Update 工作流。
+5. 该工作流验证真实线上升级成功后，notify-published-update.cjs 核对正式版元数据，
+   才调用 POST /publish，并验证真实 WebSocket 接收与持久化状态。失败不会假报成功。
+6. 不需要每次客户端更新都重新部署推送服务。服务逻辑有改动时才运行：
+   wrangler deploy --config push-service/cloudflare/wrangler.jsonc
+7. 2.2.15 及更早的旧客户端需先手动升级到 2.2.16；此后可接收主动推送。
+
+实现参考：
+  SSE 标准：https://html.spec.whatwg.org/multipage/server-sent-events.html
+  锁定依赖对应文档：https://www.electron.build/v26/docs/features/auto-update/
